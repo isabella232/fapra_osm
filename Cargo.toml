@@ -1,0 +1,7 @@
+[package]
+name = "rust_fapraosm"
+version = "0.1.0"
+authors = ["Jan Strauß <jan@over9000.eu>"]
+
+[dependencies]
+osmpbfreader = "0.3"
