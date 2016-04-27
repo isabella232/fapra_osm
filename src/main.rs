@@ -1,68 +1,89 @@
 extern crate osmpbfreader;
 
-fn count<F: Fn(&osmpbfreader::Tags) -> bool>(filter: F, filename: &std::ffi::OsStr) {
-    let r = std::fs::File::open(&std::path::Path::new(filename)).unwrap();
-    let mut pbf = osmpbfreader::OsmPbfReader::new(r);
-    let mut nb_nodes = 0;
-    let mut sum_lon = 0.;
-    let mut sum_lat = 0.;
-    let mut nb_ways = 0;
-    let mut nb_way_nodes = 0;
-    let mut nb_rels = 0;
-    let mut nb_rel_refs = 0;
+use std::fs::File;
+use std::path::Path;
+use std::ffi::OsString;
+use std::collections::HashMap;
 
-    let mut cnt_total = 0;
+use osmpbfreader::OsmObj;
+use osmpbfreader::OsmPbfReader;
 
-    for obj in pbf.iter() {
-        if !filter(obj.tags()) { continue; }
-        //info!("{:?}", obj);
-        match obj {
-            osmpbfreader::OsmObj::Node(node) => {
-                nb_nodes += 1;
-                sum_lon += node.lon;
-                sum_lat += node.lat;
-            }
-            osmpbfreader::OsmObj::Way(way) => {
-                nb_ways += 1;
-                nb_way_nodes += way.nodes.len();
-            }
-            osmpbfreader::OsmObj::Relation(rel) => {
-                nb_rels += 1;
-                nb_rel_refs += rel.refs.len();
-            }
-        }
-        cnt_total += 1;
+/*
+ * 1. parse ways; throw away those that are not roads, and for the others, remember the node IDs they consist of, by incrementing a "link counter" for each node referenced.
+ * 2. parse all ways a second time; a way will normally become one edge, but if any nodes apart from the first and the last have a link counter greater than one, then split the way into two edges at that point. Nodes with a link counter of one and which are neither first nor last can be thrown away unless you need to compute the length of the edge.
+ * 3. (if you need geometry for your graph nodes) parse the nodes section of the XML now, recording coordinates for all nodes that you have retained.
+ */
 
-        if cnt_total % 100000 == 0 {
-            println!("cnt: {}", cnt_total);
-        }
-    }
-    println!("{} nodes, mean coord: {}, {}.",
-    nb_nodes, sum_lat / nb_nodes as f64, sum_lon / nb_nodes as f64);
-    println!("{} ways, mean |nodes|: {}",
-    nb_ways, nb_way_nodes as f64 / nb_ways as f64);
-    println!("{} relations, mean |references|: {}",
-    nb_rels, nb_rel_refs as f64 / nb_rels as f64);
+struct RoutingNode {
+    id: i64,
+    lat: f64,
+    lon: f64,
+}
+
+struct RoutingEdge {
+    id_from: i64,
+    id_to: i64,
+    length: f64
+}
+
+struct FirstParseResult {
+    node_ref_count: HashMap<i64, i32>,
+    filtered_way_ids: Vec<i64>
 }
 
 fn main() {
-    let args: Vec<_> = std::env::args_os().collect();
+    let default_file = OsString::from("/home/zsdn/germany-latest.osm.pbf".to_string());
+    let args: Vec<OsString> = std::env::args_os().collect();
     match args.len() {
+        1 => {
+            read_file(&default_file);
+        }
         2 => {
-            println!("counting objects...");
-            count(|_| true, &args[1]);
+            read_file(&args[1]);
         }
-        3 => {
-            let key = args[2].to_str().unwrap();
-            println!("counting objects with \"{}\" in tags...", key);
-            count(|tags| tags.contains_key(key), &args[1]);
-        }
-        4 => {
-            let key = args[2].to_str().unwrap();
-            let val = args[3].to_str().unwrap();
-            println!("counting objects with tags[\"{}\"] = \"{}\"...", key, val);
-            count(|tags| tags.get(key).map(|v| *v == val).unwrap_or(false), &args[1]);
-        }
-        _ => println!("usage: count filename [key [value]]", ),
+        _ => {},
     };
+}
+
+fn read_file(filename: &OsString) {
+    let pbf_file = File::open(&Path::new(filename)).unwrap();
+
+
+    let firstParseResult = first_parse(&pbf_file);
+
+    println!("ways:  {}", firstParseResult.filtered_way_ids.len());
+    println!("nodes: {}", firstParseResult.node_ref_count.len());
+}
+
+fn first_parse(pbf_file: &File) -> FirstParseResult {
+    let mut result = FirstParseResult { node_ref_count: HashMap::new(), filtered_way_ids: Vec::new() };
+
+    let mut pbf = OsmPbfReader::new(pbf_file);
+
+    for obj in pbf.iter() {
+        match obj {
+            OsmObj::Way(way) => {
+                if filter_way(&way) {
+                    result.filtered_way_ids.push(way.id);
+                    for node in way.nodes {
+                        let nodeEntry = result.node_ref_count.entry(node).or_insert(0);
+                        *nodeEntry += 1;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    return result;
+}
+
+fn filter_way(way: &osmpbfreader::Way) -> bool {
+    if let Some(value) = way.tags.get("highway") {
+        let invalid_values = vec!["services", "pedestrian", "raceway", "footway", "path", "steps", "bridleway", "construction"];
+
+        return !invalid_values.contains(&value.as_str());
+    } else {
+        return false;
+    }
 }
