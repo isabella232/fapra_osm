@@ -4,6 +4,7 @@ use std::fs::File;
 use std::path::Path;
 use std::ffi::OsString;
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use osmpbfreader::OsmObj;
 use osmpbfreader::OsmPbfReader;
@@ -31,6 +32,7 @@ struct FirstParseResult {
     filtered_way_ids: Vec<i64>
 }
 
+
 fn main() {
     let default_file = OsString::from("/home/zsdn/germany-latest.osm.pbf".to_string());
     let args: Vec<OsString> = std::env::args_os().collect();
@@ -48,26 +50,50 @@ fn main() {
 fn read_file(filename: &OsString) {
     let pbf_file = File::open(&Path::new(filename)).unwrap();
 
+    //let firstParseResult = first_parse(&pbf_file);
 
-    let firstParseResult = first_parse(&pbf_file);
+    //println!("ways:  {}", firstParseResult.filtered_way_ids.len());
+    //println!("nodes: {}", firstParseResult.node_ref_count.len());
+    let n1 = osmpbfreader::Node { id: 1, lat: 48.94647, lon: 9.09309, tags: osmpbfreader::Tags::new() };
+    let n2 = osmpbfreader::Node { id: 1, lat: 48.74537, lon: 9.10711, tags: osmpbfreader::Tags::new() };
 
-    println!("ways:  {}", firstParseResult.filtered_way_ids.len());
-    println!("nodes: {}", firstParseResult.node_ref_count.len());
+    println!("distance: {}", calculate_distance(&n1, &n2));
 }
+
+fn calculate_distance(node1: &osmpbfreader::Node, node2: &osmpbfreader::Node) -> f64 {
+    let lat1 = node1.lat;
+    let lat2 = node2.lat;
+    let lng1 = node1.lon;
+    let lng2 = node2.lon;
+
+    let earth_radius: f64 = 6371000.0; //meters
+    let d_lat = (lat2 - lat1).to_radians();
+    let d_lng = (lng2 - lng1).to_radians();
+    let a = (d_lat / 2.0).sin() * (d_lat / 2.0).sin() + lat1.to_radians().cos() * lat2.to_radians().cos() * (d_lng / 2.0).sin() * (d_lng / 2.0).sin();
+    let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
+    let dist = earth_radius * c;
+
+    return dist;
+}
+
 
 fn first_parse(pbf_file: &File) -> FirstParseResult {
     let mut result = FirstParseResult { node_ref_count: HashMap::new(), filtered_way_ids: Vec::new() };
+
+
+    let mut invalid_values = HashSet::new();
+    init_filter_list(&mut invalid_values);
 
     let mut pbf = OsmPbfReader::new(pbf_file);
 
     for obj in pbf.iter() {
         match obj {
             OsmObj::Way(way) => {
-                if filter_way(&way) {
+                if filter_way(&way, &invalid_values) {
                     result.filtered_way_ids.push(way.id);
                     for node in way.nodes {
-                        let nodeEntry = result.node_ref_count.entry(node).or_insert(0);
-                        *nodeEntry += 1;
+                        let node_entry = result.node_ref_count.entry(node).or_insert(0);
+                        *node_entry += 1;
                     }
                 }
             }
@@ -78,10 +104,19 @@ fn first_parse(pbf_file: &File) -> FirstParseResult {
     return result;
 }
 
-fn filter_way(way: &osmpbfreader::Way) -> bool {
-    if let Some(value) = way.tags.get("highway") {
-        let invalid_values = vec!["services", "pedestrian", "raceway", "footway", "path", "steps", "bridleway", "construction"];
+fn init_filter_list(invalid_values: &mut HashSet<&str>) {
+    invalid_values.insert("services");
+    invalid_values.insert("pedestrian");
+    invalid_values.insert("raceway");
+    invalid_values.insert("footway");
+    invalid_values.insert("path");
+    invalid_values.insert("steps");
+    invalid_values.insert("bridleway");
+    invalid_values.insert("construction");
+}
 
+fn filter_way(way: &osmpbfreader::Way, invalid_values: &HashSet<&str>) -> bool {
+    if let Some(value) = way.tags.get("highway") {
         return !invalid_values.contains(&value.as_str());
     } else {
         return false;
