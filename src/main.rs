@@ -13,10 +13,13 @@ use osmpbfreader::OsmPbfReader;
  * 1. parse ways; throw away those that are not roads, and for the others, remember the node IDs they consist of, by incrementing a "link counter" for each node referenced.
  * 2. parse all ways a second time; a way will normally become one edge, but if any nodes apart from the first and the last have a link counter greater than one, then split the way into two edges at that point. Nodes with a link counter of one and which are neither first nor last can be thrown away unless you need to compute the length of the edge.
  * 3. (if you need geometry for your graph nodes) parse the nodes section of the XML now, recording coordinates for all nodes that you have retained.
+ *
+ * 1. Result: used node-id with usage counter, used way ids
+ * 2. Result: extract node-objects for used node id's TODO
+ * 3. Result: split ways into edges, calculate distance using calc_dist fn + node objects. Remove contracted nodes from map TODO
  */
 
-struct RoutingNode {
-    id: i64,
+struct Position {
     lat: f64,
     lon: f64,
 }
@@ -29,7 +32,16 @@ struct RoutingEdge {
 
 struct FirstParseResult {
     node_ref_count: HashMap<i64, i32>,
-    filtered_way_ids: Vec<i64>
+    filtered_way_ids: HashSet<i64>
+}
+
+struct SecondParseResult {
+    nodes: HashMap<i64, Position>,
+}
+
+struct ThirdParseResult {
+    nodes: HashMap<i64, Position>,
+    edges: Vec<RoutingEdge>
 }
 
 
@@ -60,6 +72,26 @@ fn read_file(filename: &OsString) {
     println!("distance: {}", calculate_distance(&n1, &n2));
 }
 
+fn second_parse(pbf_file: &File, input: &FirstParseResult) -> SecondParseResult {
+    let mut result = SecondParseResult { nodes: HashMap::new() };
+
+    let mut pbf = OsmPbfReader::new(pbf_file);
+
+    for obj in pbf.iter() {
+        match obj {
+            OsmObj::Node(node) => {
+                if input.node_ref_count.contains_key(&node.id) {
+                    result.nodes.insert(node.id, Position { lat: node.lat, lon: node.lon });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    return result;
+}
+
+
 fn calculate_distance(node1: &osmpbfreader::Node, node2: &osmpbfreader::Node) -> f64 {
     let lat1 = node1.lat;
     let lat2 = node2.lat;
@@ -78,7 +110,7 @@ fn calculate_distance(node1: &osmpbfreader::Node, node2: &osmpbfreader::Node) ->
 
 
 fn first_parse(pbf_file: &File) -> FirstParseResult {
-    let mut result = FirstParseResult { node_ref_count: HashMap::new(), filtered_way_ids: Vec::new() };
+    let mut result = FirstParseResult { node_ref_count: HashMap::new(), filtered_way_ids: HashSet::new() };
 
 
     let mut invalid_values = HashSet::new();
@@ -90,7 +122,7 @@ fn first_parse(pbf_file: &File) -> FirstParseResult {
         match obj {
             OsmObj::Way(way) => {
                 if filter_way(&way, &invalid_values) {
-                    result.filtered_way_ids.push(way.id);
+                    result.filtered_way_ids.insert(way.id);
                     for node in way.nodes {
                         let node_entry = result.node_ref_count.entry(node).or_insert(0);
                         *node_entry += 1;
