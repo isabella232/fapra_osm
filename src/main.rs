@@ -1,5 +1,7 @@
 extern crate osmpbfreader;
+extern crate time;
 
+use time::PreciseTime;
 use std::fs::File;
 use std::path::Path;
 use std::ffi::OsString;
@@ -9,21 +11,13 @@ use std::collections::HashSet;
 use osmpbfreader::OsmObj;
 use osmpbfreader::OsmPbfReader;
 
-/*
- * 1. parse ways; throw away those that are not roads, and for the others, remember the node IDs they consist of, by incrementing a "link counter" for each node referenced.
- * 2. parse all ways a second time; a way will normally become one edge, but if any nodes apart from the first and the last have a link counter greater than one, then split the way into two edges at that point. Nodes with a link counter of one and which are neither first nor last can be thrown away unless you need to compute the length of the edge.
- * 3. (if you need geometry for your graph nodes) parse the nodes section of the XML now, recording coordinates for all nodes that you have retained.
- *
- * 1. Result: used node-id with usage counter, used way ids
- * 2. Result: extract node-objects for used node id's TODO
- * 3. Result: split ways into edges, calculate distance using calc_dist fn + node objects. Remove contracted nodes from map TODO
- */
-
+#[derive(Debug, Clone, Copy)]
 struct Position {
     lat: f64,
     lon: f64,
 }
 
+#[derive(Debug, Clone, Copy)]
 struct RoutingEdge {
     id_from: i64,
     id_to: i64,
@@ -31,17 +25,33 @@ struct RoutingEdge {
 }
 
 struct FirstParseResult {
-    node_ref_count: HashMap<i64, i32>,
-    filtered_way_ids: HashSet<i64>
+    // used node-ids
+    nodes_used: HashSet<i64>,
+    // "useful" ways
+    filtered_ways: HashSet<i64>
 }
 
 struct SecondParseResult {
+    // relevant nodes and their position
     nodes: HashMap<i64, Position>,
 }
 
 struct ThirdParseResult {
-    nodes: HashMap<i64, Position>,
+    // edges
     edges: Vec<RoutingEdge>
+}
+
+struct RoutingData {
+    // relevant nodes and their position
+    osm_nodes: HashMap<i64, Position>,
+    //[n_id] -> osm_n_id
+    internal_nodes: Vec<i64>,
+    // [e_id] -> osm_n_id target
+    internal_edges: Vec<i64>,
+    // [n_id] -> e_id
+    internal_offset: Vec<i64>,
+    // e_id -> length
+    internal_length: Vec<f64>
 }
 
 
@@ -60,27 +70,65 @@ fn main() {
 }
 
 fn read_file(filename: &OsString) {
-    let pbf_file = File::open(&Path::new(filename)).unwrap();
+    let start_p1 = PreciseTime::now();
+    let firstParseResult = first_parse(&filename);
+    let end_p1 = PreciseTime::now();
 
-    //let firstParseResult = first_parse(&pbf_file);
+    println!("P1 | ways:  {}", firstParseResult.filtered_ways.len());
+    println!("P1 | nodes: {}", firstParseResult.nodes_used.len());
+    println!("P1 | duration: {}", start_p1.to(end_p1));
 
-    //println!("ways:  {}", firstParseResult.filtered_way_ids.len());
-    //println!("nodes: {}", firstParseResult.node_ref_count.len());
-    let n1 = osmpbfreader::Node { id: 1, lat: 48.94647, lon: 9.09309, tags: osmpbfreader::Tags::new() };
-    let n2 = osmpbfreader::Node { id: 1, lat: 48.74537, lon: 9.10711, tags: osmpbfreader::Tags::new() };
+    let start_p2 = PreciseTime::now();
+    let secondParseResult = second_parse(&filename, &firstParseResult);
+    let end_p2 = PreciseTime::now();
 
-    println!("distance: {}", calculate_distance(&n1, &n2));
+    println!("P2 | nodes: {}", secondParseResult.nodes.len());
+    println!("P2 | duration: {}", start_p2.to(end_p2));
+
+    let start_p3 = PreciseTime::now();
+    let thirdParseResult = third_parse(&filename, &firstParseResult, &secondParseResult);
+    let end_p3 = PreciseTime::now();
+
+    println!("P3 | edges:  {}", thirdParseResult.edges.len());
+    println!("P3 | duration: {}", start_p3.to(end_p3));
 }
 
-fn second_parse(pbf_file: &File, input: &FirstParseResult) -> SecondParseResult {
-    let mut result = SecondParseResult { nodes: HashMap::new() };
+
+fn first_parse(filename: &OsString) -> FirstParseResult {
+    let pbf_file = File::open(&Path::new(filename)).unwrap();
+    let mut result = FirstParseResult { nodes_used: HashSet::new(), filtered_ways: HashSet::new() };
+
+    let mut invalid_values = HashSet::new();
+    init_filter_list(&mut invalid_values);
 
     let mut pbf = OsmPbfReader::new(pbf_file);
 
     for obj in pbf.iter() {
         match obj {
+            OsmObj::Way(way) => {
+                if filter_way(&way, &invalid_values) {
+                    for node in way.nodes {
+                        result.nodes_used.insert(node);
+                    }
+                    result.filtered_ways.insert(way.id);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    return result;
+}
+
+fn second_parse(filename: &OsString, input: &FirstParseResult) -> SecondParseResult {
+    let pbf_file = File::open(&Path::new(filename)).unwrap();
+    let mut pbf = OsmPbfReader::new(pbf_file);
+    let mut result = SecondParseResult { nodes: HashMap::new() };
+
+    for obj in pbf.iter() {
+        match obj {
             OsmObj::Node(node) => {
-                if input.node_ref_count.contains_key(&node.id) {
+                if input.nodes_used.contains(&node.id) {
                     result.nodes.insert(node.id, Position { lat: node.lat, lon: node.lon });
                 }
             }
@@ -91,8 +139,42 @@ fn second_parse(pbf_file: &File, input: &FirstParseResult) -> SecondParseResult 
     return result;
 }
 
+fn third_parse(filename: &OsString, first: &FirstParseResult, second: &SecondParseResult) -> ThirdParseResult {
+    let pbf_file = File::open(&Path::new(filename)).unwrap();
+    let mut pbf = OsmPbfReader::new(pbf_file);
+    let mut result = ThirdParseResult { edges: Vec::new() };
 
-fn calculate_distance(node1: &osmpbfreader::Node, node2: &osmpbfreader::Node) -> f64 {
+    for obj in pbf.iter() {
+        match obj {
+            OsmObj::Way(way) => {
+                if first.filtered_ways.contains(&way.id) {
+                    for node_pair in way.nodes.windows(2) {
+                        if let (Some(from), Some(to)) = (node_pair.first(), node_pair.last()) {
+                            if let (Some(from_node), Some(to_node)) = (second.nodes.get(from), second.nodes.get(to)) {
+                                let edge_length = calculate_distance(from_node, to_node);
+                                let edge = RoutingEdge { id_from: from.clone(), id_to: to.clone(), length: edge_length.clone() };
+                                result.edges.push(edge);
+
+                                if let Some(val) = way.tags.get("oneway") {
+                                    if val == "yes" {
+                                        let edge_reverse = RoutingEdge { id_from: to.clone(), id_to: from.clone(), length: edge_length.clone() };
+                                        result.edges.push(edge_reverse);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    return result;
+}
+
+
+fn calculate_distance(node1: &Position, node2: &Position) -> f64 {
     let lat1 = node1.lat;
     let lat2 = node2.lat;
     let lng1 = node1.lon;
@@ -106,34 +188,6 @@ fn calculate_distance(node1: &osmpbfreader::Node, node2: &osmpbfreader::Node) ->
     let dist = earth_radius * c;
 
     return dist;
-}
-
-
-fn first_parse(pbf_file: &File) -> FirstParseResult {
-    let mut result = FirstParseResult { node_ref_count: HashMap::new(), filtered_way_ids: HashSet::new() };
-
-
-    let mut invalid_values = HashSet::new();
-    init_filter_list(&mut invalid_values);
-
-    let mut pbf = OsmPbfReader::new(pbf_file);
-
-    for obj in pbf.iter() {
-        match obj {
-            OsmObj::Way(way) => {
-                if filter_way(&way, &invalid_values) {
-                    result.filtered_way_ids.insert(way.id);
-                    for node in way.nodes {
-                        let node_entry = result.node_ref_count.entry(node).or_insert(0);
-                        *node_entry += 1;
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    return result;
 }
 
 fn init_filter_list(invalid_values: &mut HashSet<&str>) {

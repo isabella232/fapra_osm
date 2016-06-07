@@ -4,4 +4,5 @@ version = "0.1.0"
 authors = ["Jan Strauß <jan@over9000.eu>"]
 
 [dependencies]
+time = "*"
 osmpbfreader = "0.3"
