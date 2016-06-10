@@ -197,19 +197,20 @@ fn build_routing_data(parse_result: &mut ParseData) -> RoutingData {
         if let Some(pos) = parse_result.nodes.remove(node) {
             routing_data.osm_nodes.insert(node.clone(), OsmNode { position: pos, internal_id: i });
 
-            routing_data.internal_offset.push(routing_data.internal_edges.len());
+            routing_data.internal_offset[i] = routing_data.internal_edges.len();
 
             loop {
-                let mut relevant_edge = false;
                 if let Some(edge) = parse_result.edges.last() {
-                    if edge.id_from == *node {
-                        relevant_edge = true;
+                    if edge.id_from != *node {
+                        break;
                     }
+                } else {
+                    break;
                 }
-                if relevant_edge {
-                    if let Some(edge) = parse_result.edges.pop() {
-                        routing_data.internal_edges.push(RoutingEdge { target: edge.id_to as usize, length: edge.length, constraints: 0b00000001 });
-                    }
+                if let Some(edge) = parse_result.edges.pop() {
+                    routing_data.internal_edges.push(RoutingEdge { target: edge.id_to as usize, length: edge.length, constraints: 0b00000001 });
+                } else {
+                    break;
                 }
             }
         }
