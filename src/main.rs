@@ -18,45 +18,48 @@ struct Position {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct RoutingEdge {
+struct ParsedEdge {
     id_from: i64,
     id_to: i64,
-    length: f64
+    length: f64,
 }
 
-struct FirstParseResult {
+struct ParseData {
     // used node-ids
     nodes_used: HashSet<i64>,
     // "useful" ways
-    filtered_ways: HashSet<i64>
-}
-
-struct SecondParseResult {
+    filtered_ways: HashSet<i64>,
     // relevant nodes and their position
     nodes: HashMap<i64, Position>,
+    // edges
+    edges: Vec<ParsedEdge>
 }
 
-struct ThirdParseResult {
-    // edges
-    edges: Vec<RoutingEdge>
+struct RoutingEdge {
+    target: usize,
+    length: f64,
+    constraints: u8,
+}
+
+struct OsmNode {
+    position: Position,
+    internal_id: usize
 }
 
 struct RoutingData {
     // relevant nodes and their position
-    osm_nodes: HashMap<i64, Position>,
+    osm_nodes: HashMap<i64, OsmNode>,
     //[n_id] -> osm_n_id
     internal_nodes: Vec<i64>,
-    // [e_id] -> osm_n_id target
-    internal_edges: Vec<i64>,
+    // [e_id] -> n_id target|length|constraints
+    internal_edges: Vec<RoutingEdge>,
     // [n_id] -> e_id
-    internal_offset: Vec<i64>,
-    // e_id -> length
-    internal_length: Vec<f64>
+    internal_offset: Vec<usize>,
 }
 
 
 fn main() {
-    let default_file = OsString::from("/home/zsdn/germany-latest.osm.pbf".to_string());
+    let default_file = OsString::from("/home/zsdn/baden-wuerttemberg-latest.osm.pbf".to_string());
     let args: Vec<OsString> = std::env::args_os().collect();
     match args.len() {
         1 => {
@@ -69,34 +72,47 @@ fn main() {
     };
 }
 
-fn read_file(filename: &OsString) {
+fn read_file(filename: &OsString) -> RoutingData {
+    let mut parse_result = ParseData { nodes_used: HashSet::new(), filtered_ways: HashSet::new(), nodes: HashMap::new(), edges: Vec::new() };
+
     let start_p1 = PreciseTime::now();
-    let firstParseResult = first_parse(&filename);
+    first_parse(&filename, &mut parse_result);
     let end_p1 = PreciseTime::now();
 
-    println!("P1 | ways:  {}", firstParseResult.filtered_ways.len());
-    println!("P1 | nodes: {}", firstParseResult.nodes_used.len());
+    println!("P1 | ways:  {}", parse_result.filtered_ways.len());
+    println!("P1 | nodes: {}", parse_result.nodes_used.len());
     println!("P1 | duration: {}", start_p1.to(end_p1));
 
     let start_p2 = PreciseTime::now();
-    let secondParseResult = second_parse(&filename, &firstParseResult);
+    second_parse(&filename, &mut parse_result);
     let end_p2 = PreciseTime::now();
 
-    println!("P2 | nodes: {}", secondParseResult.nodes.len());
+    println!("P2 | nodes: {}", parse_result.nodes.len());
     println!("P2 | duration: {}", start_p2.to(end_p2));
 
     let start_p3 = PreciseTime::now();
-    let thirdParseResult = third_parse(&filename, &firstParseResult, &secondParseResult);
+    third_parse(&filename, &mut parse_result);
     let end_p3 = PreciseTime::now();
 
-    println!("P3 | edges:  {}", thirdParseResult.edges.len());
+    println!("P3 | edges:  {}", parse_result.edges.len());
     println!("P3 | duration: {}", start_p3.to(end_p3));
+
+    let start_b = PreciseTime::now();
+    let routing_data = build_routing_data(&mut parse_result);
+    let end_b = PreciseTime::now();
+
+    println!("B  | edges:  {}", routing_data.internal_edges.len());
+    println!("B  | nodes:  {}", routing_data.internal_nodes.len());
+    println!("B  | offset:  {}", routing_data.internal_offset.len());
+    println!("B  | osm_nodes:  {}", routing_data.osm_nodes.len());
+    println!("B  | duration: {}", start_b.to(end_b));
+
+    return routing_data;
 }
 
 
-fn first_parse(filename: &OsString) -> FirstParseResult {
+fn first_parse(filename: &OsString, parse_result: &mut ParseData) {
     let pbf_file = File::open(&Path::new(filename)).unwrap();
-    let mut result = FirstParseResult { nodes_used: HashSet::new(), filtered_ways: HashSet::new() };
 
     let mut invalid_values = HashSet::new();
     init_filter_list(&mut invalid_values);
@@ -108,57 +124,51 @@ fn first_parse(filename: &OsString) -> FirstParseResult {
             OsmObj::Way(way) => {
                 if filter_way(&way, &invalid_values) {
                     for node in way.nodes {
-                        result.nodes_used.insert(node);
+                        parse_result.nodes_used.insert(node);
                     }
-                    result.filtered_ways.insert(way.id);
+                    parse_result.filtered_ways.insert(way.id);
                 }
             }
             _ => {}
         }
     }
-
-    return result;
 }
 
-fn second_parse(filename: &OsString, input: &FirstParseResult) -> SecondParseResult {
+fn second_parse(filename: &OsString, parse_result: &mut ParseData) {
     let pbf_file = File::open(&Path::new(filename)).unwrap();
     let mut pbf = OsmPbfReader::new(pbf_file);
-    let mut result = SecondParseResult { nodes: HashMap::new() };
 
     for obj in pbf.iter() {
         match obj {
             OsmObj::Node(node) => {
-                if input.nodes_used.contains(&node.id) {
-                    result.nodes.insert(node.id, Position { lat: node.lat, lon: node.lon });
+                if parse_result.nodes_used.remove(&node.id) {
+                    parse_result.nodes.insert(node.id, Position { lat: node.lat, lon: node.lon });
                 }
             }
             _ => {}
         }
     }
-
-    return result;
 }
 
-fn third_parse(filename: &OsString, first: &FirstParseResult, second: &SecondParseResult) -> ThirdParseResult {
+fn third_parse(filename: &OsString, parse_result: &mut ParseData) {
     let pbf_file = File::open(&Path::new(filename)).unwrap();
     let mut pbf = OsmPbfReader::new(pbf_file);
-    let mut result = ThirdParseResult { edges: Vec::new() };
 
     for obj in pbf.iter() {
         match obj {
             OsmObj::Way(way) => {
-                if first.filtered_ways.contains(&way.id) {
+                if parse_result.filtered_ways.remove(&way.id) {
                     for node_pair in way.nodes.windows(2) {
                         if let (Some(from), Some(to)) = (node_pair.first(), node_pair.last()) {
-                            if let (Some(from_node), Some(to_node)) = (second.nodes.get(from), second.nodes.get(to)) {
+                            if let (Some(from_node), Some(to_node)) = (parse_result.nodes.get(from), parse_result.nodes.get(to)) {
                                 let edge_length = calculate_distance(from_node, to_node);
-                                let edge = RoutingEdge { id_from: from.clone(), id_to: to.clone(), length: edge_length.clone() };
-                                result.edges.push(edge);
+                                let edge = ParsedEdge { id_from: from.clone(), id_to: to.clone(), length: edge_length.clone() };
+                                parse_result.edges.push(edge);
 
                                 if let Some(val) = way.tags.get("oneway") {
                                     if val == "yes" {
-                                        let edge_reverse = RoutingEdge { id_from: to.clone(), id_to: from.clone(), length: edge_length.clone() };
-                                        result.edges.push(edge_reverse);
+                                        let edge_reverse = ParsedEdge { id_from: to.clone(), id_to: from.clone(), length: edge_length.clone() };
+                                        parse_result.edges.push(edge_reverse);
                                     }
                                 }
                             }
@@ -169,8 +179,43 @@ fn third_parse(filename: &OsString, first: &FirstParseResult, second: &SecondPar
             _ => {}
         }
     }
+}
 
-    return result;
+fn build_routing_data(parse_result: &mut ParseData) -> RoutingData {
+    let mut routing_data = RoutingData { osm_nodes: HashMap::new(), internal_nodes: Vec::new(), internal_edges: Vec::new(), internal_offset: vec![usize::max_value(); parse_result.nodes.len()] };
+
+    parse_result.edges.sort_by(|a, b| b.id_from.cmp(&a.id_from));
+
+    for node in parse_result.nodes.keys() {
+        routing_data.internal_nodes.push(node.clone());
+    }
+
+    routing_data.internal_nodes.sort();
+
+
+    for (i, node) in routing_data.internal_nodes.iter().enumerate() {
+        if let Some(pos) = parse_result.nodes.remove(node) {
+            routing_data.osm_nodes.insert(node.clone(), OsmNode { position: pos, internal_id: i });
+
+            routing_data.internal_offset.push(routing_data.internal_edges.len());
+
+            loop {
+                let mut relevant_edge = false;
+                if let Some(edge) = parse_result.edges.last() {
+                    if edge.id_from == *node {
+                        relevant_edge = true;
+                    }
+                }
+                if relevant_edge {
+                    if let Some(edge) = parse_result.edges.pop() {
+                        routing_data.internal_edges.push(RoutingEdge { target: edge.id_to as usize, length: edge.length, constraints: 0b00000001 });
+                    }
+                }
+            }
+        }
+    }
+
+    return routing_data;
 }
 
 
