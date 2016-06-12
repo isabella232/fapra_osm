@@ -57,9 +57,9 @@ struct RoutingData {
     internal_offset: Vec<usize>,
 }
 
-
 fn main() {
     let default_file = OsString::from("/home/zsdn/baden-wuerttemberg-latest.osm.pbf".to_string());
+    //let default_file = OsString::from("/home/zsdn/germany-latest.osm.pbf".to_string());
     let args: Vec<OsString> = std::env::args_os().collect();
     match args.len() {
         1 => {
@@ -80,13 +80,18 @@ fn read_file(filename: &OsString) -> RoutingData {
     let end_p1 = PreciseTime::now();
 
     println!("P1 | ways:  {}", parse_result.filtered_ways.len());
-    println!("P1 | nodes: {}", parse_result.nodes_used.len());
+    println!("P1 | nodes_used: {}", parse_result.nodes_used.len());
+    println!("P1 | edges: {}", parse_result.edges.len());
+    println!("P1 | nodes: {}", parse_result.nodes.len());
     println!("P1 | duration: {}", start_p1.to(end_p1));
 
     let start_p2 = PreciseTime::now();
     second_parse(&filename, &mut parse_result);
     let end_p2 = PreciseTime::now();
 
+    println!("P2 | ways:  {}", parse_result.filtered_ways.len());
+    println!("P2 | nodes_used: {}", parse_result.nodes_used.len());
+    println!("P2 | edges: {}", parse_result.edges.len());
     println!("P2 | nodes: {}", parse_result.nodes.len());
     println!("P2 | duration: {}", start_p2.to(end_p2));
 
@@ -94,7 +99,10 @@ fn read_file(filename: &OsString) -> RoutingData {
     third_parse(&filename, &mut parse_result);
     let end_p3 = PreciseTime::now();
 
-    println!("P3 | edges:  {}", parse_result.edges.len());
+    println!("P3 | ways:  {}", parse_result.filtered_ways.len());
+    println!("P3 | nodes_used: {}", parse_result.nodes_used.len());
+    println!("P3 | edges: {}", parse_result.edges.len());
+    println!("P3 | nodes: {}", parse_result.nodes.len());
     println!("P3 | duration: {}", start_p3.to(end_p3));
 
     let start_b = PreciseTime::now();
@@ -197,7 +205,11 @@ fn build_routing_data(parse_result: &mut ParseData) -> RoutingData {
         if let Some(pos) = parse_result.nodes.remove(node) {
             routing_data.osm_nodes.insert(node.clone(), OsmNode { position: pos, internal_id: i });
 
-            routing_data.internal_offset[i] = routing_data.internal_edges.len();
+            if let Some(edge) = parse_result.edges.last() {
+                if edge.id_from == *node {
+                    routing_data.internal_offset[i] = routing_data.internal_edges.len();
+                }
+            }
 
             loop {
                 if let Some(edge) = parse_result.edges.last() {
