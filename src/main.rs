@@ -121,7 +121,7 @@ fn read_file(filename: &OsString) -> RoutingData {
 }
 
 #[test]
-fn test() {
+fn test_routing_data_gen() {
     let edge_vec = vec![ParsedEdge{id_from : 0, id_to : 1, length : 1.0},
                         ParsedEdge{id_from : 0, id_to : 2, length : 1.0},
                         ParsedEdge{id_from : 2, id_to : 1, length : 1.0},
