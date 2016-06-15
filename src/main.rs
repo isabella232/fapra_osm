@@ -35,6 +35,7 @@ struct ParseData {
     edges: Vec<ParsedEdge>
 }
 
+#[derive(Debug)]
 struct RoutingEdge {
     target: usize,
     length: f64,
@@ -106,7 +107,7 @@ fn read_file(filename: &OsString) -> RoutingData {
     println!("P3 | duration: {}", start_p3.to(end_p3));
 
     let start_b = PreciseTime::now();
-    let routing_data = build_routing_data(&mut parse_result);
+    let routing_data = build_routing_data(parse_result);
     let end_b = PreciseTime::now();
 
     println!("B  | edges:  {}", routing_data.internal_edges.len());
@@ -115,7 +116,38 @@ fn read_file(filename: &OsString) -> RoutingData {
     println!("B  | osm_nodes:  {}", routing_data.osm_nodes.len());
     println!("B  | duration: {}", start_b.to(end_b));
 
+
     return routing_data;
+}
+
+#[test]
+fn test() {
+    let edge_vec = vec![ParsedEdge{id_from : 0, id_to : 1, length : 1.0},
+                        ParsedEdge{id_from : 0, id_to : 2, length : 1.0},
+                        ParsedEdge{id_from : 2, id_to : 1, length : 1.0},
+                        ParsedEdge{id_from : 2, id_to : 3, length : 1.0},
+                        ParsedEdge{id_from : 3, id_to : 1, length : 1.0},
+                        ParsedEdge{id_from : 3, id_to : 4, length : 1.0},
+    ];
+
+
+    let mut nodes_map = HashMap::new();
+
+    nodes_map.insert(0, Position { lat: 0.0, lon: 0.0 });
+    nodes_map.insert(1, Position { lat: 0.0, lon: 0.0 });
+    nodes_map.insert(2, Position { lat: 0.0, lon: 0.0 });
+    nodes_map.insert(3, Position { lat: 0.0, lon: 0.0 });
+    nodes_map.insert(4, Position { lat: 0.0, lon: 0.0 });
+
+    let parse_result = ParseData { nodes: nodes_map, edges: edge_vec, filtered_ways: HashSet::new(), nodes_used: HashSet::new() };
+
+    let routing_data = build_routing_data(parse_result);
+
+    println!("NODES: {:?}", routing_data.internal_nodes);
+    println!("EDGES: {:?}", routing_data.internal_edges);
+    println!("OFFSET: {:?}", routing_data.internal_offset);
+
+    assert_eq!(routing_data.internal_offset, vec![0, 2, 2, 4, 5]);
 }
 
 
@@ -189,7 +221,7 @@ fn third_parse(filename: &OsString, parse_result: &mut ParseData) {
     }
 }
 
-fn build_routing_data(parse_result: &mut ParseData) -> RoutingData {
+fn build_routing_data(mut parse_result: ParseData) -> RoutingData {
     let mut routing_data = RoutingData { osm_nodes: HashMap::new(), internal_nodes: Vec::new(), internal_edges: Vec::new(), internal_offset: vec![usize::max_value(); parse_result.nodes.len()] };
 
     parse_result.edges.sort_by(|a, b| b.id_from.cmp(&a.id_from));
@@ -225,6 +257,16 @@ fn build_routing_data(parse_result: &mut ParseData) -> RoutingData {
                     break;
                 }
             }
+        }
+    }
+
+    let mut current_offset = routing_data.internal_edges.len() - 1;
+
+    for offset in &mut routing_data.internal_offset.iter_mut().rev() {
+        if *offset == usize::max_value() {
+            *offset = current_offset;
+        } else {
+            current_offset = *offset;
         }
     }
 
