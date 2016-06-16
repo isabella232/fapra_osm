@@ -6,3 +6,9 @@ authors = ["Jan Strauß <jan@over9000.eu>"]
 [dependencies]
 time = "*"
 osmpbfreader = "0.3"
+iron = "*"
+staticfile = "*"
+
+[dependencies.mount]
+
+git = "https://github.com/iron/mount.git"
