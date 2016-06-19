@@ -39,11 +39,13 @@ struct RoutingEdge {
     constraints: u8,
 }
 
+#[derive(Debug)]
 struct OsmNode {
     position: Position,
     internal_id: usize
 }
 
+#[derive(Debug)]
 pub struct RoutingData {
     // relevant nodes and their position
     osm_nodes: HashMap<i64, OsmNode>,
@@ -105,6 +107,16 @@ pub fn read_file(filename: &OsString) -> RoutingData {
 
 #[test]
 fn test_routing_data_gen() {
+    let routing_data = build_dummy_data();
+
+    println!("NODES: {:?}", routing_data.internal_nodes);
+    println!("EDGES: {:?}", routing_data.internal_edges);
+    println!("OFFSET: {:?}", routing_data.internal_offset);
+
+    assert_eq!(routing_data.internal_offset, vec![0, 2, 2, 4, 5]);
+}
+
+pub fn build_dummy_data() -> RoutingData {
     let edge_vec = vec![ParsedEdge{id_from : 0, id_to : 1, length : 1.0},
                         ParsedEdge{id_from : 0, id_to : 2, length : 1.0},
                         ParsedEdge{id_from : 2, id_to : 1, length : 1.0},
@@ -124,13 +136,7 @@ fn test_routing_data_gen() {
 
     let parse_result = ParseData { nodes: nodes_map, edges: edge_vec, filtered_ways: HashSet::new(), nodes_used: HashSet::new() };
 
-    let routing_data = build_routing_data(parse_result);
-
-    println!("NODES: {:?}", routing_data.internal_nodes);
-    println!("EDGES: {:?}", routing_data.internal_edges);
-    println!("OFFSET: {:?}", routing_data.internal_offset);
-
-    assert_eq!(routing_data.internal_offset, vec![0, 2, 2, 4, 5]);
+    build_routing_data(parse_result)
 }
 
 
