@@ -8,7 +8,9 @@ time = "*"
 osmpbfreader = "0.3"
 iron = "*"
 staticfile = "*"
-
-[dependencies.mount]
-
-git = "https://github.com/iron/mount.git"
+mount = "*"
+rustc-serialize = "*"
+bincode = "*"
+flate2 = "*"
+urlencoded = "*"
+ordered-float = "*"

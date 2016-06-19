@@ -8,10 +8,10 @@ use std::collections::HashSet;
 use osmpbfreader::OsmObj;
 use osmpbfreader::OsmPbfReader;
 
-#[derive(Debug, Clone, Copy)]
-struct Position {
-    lat: f64,
-    lon: f64,
+#[derive(Debug, Clone, Copy, RustcEncodable, RustcDecodable)]
+pub struct Position {
+    pub lat: f64,
+    pub lon: f64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -19,48 +19,55 @@ struct ParsedEdge {
     id_from: i64,
     id_to: i64,
     length: f64,
+    constraints: u8,
 }
 
 struct ParseData {
     // used node-ids
     nodes_used: HashSet<i64>,
     // "useful" ways
-    filtered_ways: HashSet<i64>,
+    filtered_ways: HashMap<i64, u8>,
     // relevant nodes and their position
     nodes: HashMap<i64, Position>,
     // edges
     edges: Vec<ParsedEdge>
 }
 
-#[derive(Debug)]
-struct RoutingEdge {
-    target: usize,
-    length: f64,
-    constraints: u8,
+
+pub const FLAG_CAR: u8 = 0b00000001;
+pub const FLAG_BIKE: u8 = 0b00000010;
+pub const FLAG_WALK: u8 = 0b00000100;
+
+
+#[derive(Debug, RustcEncodable, RustcDecodable)]
+pub struct RoutingEdge {
+    pub target: usize,
+    pub length: f64,
+    pub constraints: u8,
 }
 
-#[derive(Debug)]
-struct OsmNode {
-    position: Position,
-    internal_id: usize
+#[derive(Debug, RustcEncodable, RustcDecodable)]
+pub struct OsmNode {
+    pub position: Position,
+    pub internal_id: usize
 }
 
-#[derive(Debug)]
+#[derive(Debug, RustcEncodable, RustcDecodable)]
 pub struct RoutingData {
     // relevant nodes and their position
-    osm_nodes: HashMap<i64, OsmNode>,
+    pub osm_nodes: HashMap<i64, OsmNode>,
     //[n_id] -> osm_n_id
-    internal_nodes: Vec<i64>,
+    pub internal_nodes: Vec<i64>,
     // [e_id] -> target_n_id|length|constraints
-    internal_edges: Vec<RoutingEdge>,
+    pub internal_edges: Vec<RoutingEdge>,
     // [n_id] -> e_id
-    internal_offset: Vec<usize>,
+    pub internal_offset: Vec<usize>,
 }
 
 pub fn read_file(filename: &OsString) -> RoutingData {
     println!("will read file: {:?}", &filename);
 
-    let mut parse_result = ParseData { nodes_used: HashSet::new(), filtered_ways: HashSet::new(), nodes: HashMap::new(), edges: Vec::new() };
+    let mut parse_result = ParseData { nodes_used: HashSet::new(), filtered_ways: HashMap::new(), nodes: HashMap::new(), edges: Vec::new() };
 
     let start_p1 = PreciseTime::now();
     first_parse(&filename, &mut parse_result);
@@ -106,6 +113,7 @@ pub fn read_file(filename: &OsString) -> RoutingData {
 }
 
 #[test]
+#[ignore]
 fn test_routing_data_gen() {
     let routing_data = build_dummy_data();
 
@@ -117,24 +125,24 @@ fn test_routing_data_gen() {
 }
 
 pub fn build_dummy_data() -> RoutingData {
-    let edge_vec = vec![ParsedEdge{id_from : 0, id_to : 1, length : 1.0},
-                        ParsedEdge{id_from : 0, id_to : 2, length : 1.0},
-                        ParsedEdge{id_from : 2, id_to : 1, length : 1.0},
-                        ParsedEdge{id_from : 2, id_to : 3, length : 1.0},
-                        ParsedEdge{id_from : 3, id_to : 0, length : 1.0},
-                        ParsedEdge{id_from : 3, id_to : 4, length : 1.0},
+    let edge_vec = vec![ParsedEdge{id_from: 5000, id_to: 5001, length: 1.0, constraints: FLAG_CAR },
+                        ParsedEdge{id_from: 5000, id_to: 5002, length: 1.0, constraints: FLAG_CAR },
+                        ParsedEdge{id_from: 5002, id_to: 5001, length: 1.0, constraints: FLAG_CAR },
+                        ParsedEdge{id_from: 5002, id_to: 5003, length: 1.0, constraints: FLAG_CAR },
+                        ParsedEdge{id_from: 5003, id_to: 5000, length: 1.0, constraints: FLAG_CAR },
+                        ParsedEdge{id_from: 5003, id_to: 5004, length: 1.0, constraints: FLAG_CAR },
     ];
 
 
     let mut nodes_map = HashMap::new();
 
-    nodes_map.insert(0, Position { lat: 0.0, lon: 0.0 });
-    nodes_map.insert(1, Position { lat: 0.0, lon: 0.0 });
-    nodes_map.insert(2, Position { lat: 0.0, lon: 0.0 });
-    nodes_map.insert(3, Position { lat: 0.0, lon: 0.0 });
-    nodes_map.insert(4, Position { lat: 0.0, lon: 0.0 });
+    nodes_map.insert(5000, Position { lat: 0.0, lon: 0.0 });
+    nodes_map.insert(5001, Position { lat: 0.0, lon: 0.0 });
+    nodes_map.insert(5002, Position { lat: 0.0, lon: 0.0 });
+    nodes_map.insert(5003, Position { lat: 0.0, lon: 0.0 });
+    nodes_map.insert(5004, Position { lat: 0.0, lon: 0.0 });
 
-    let parse_result = ParseData { nodes: nodes_map, edges: edge_vec, filtered_ways: HashSet::new(), nodes_used: HashSet::new() };
+    let parse_result = ParseData { nodes: nodes_map, edges: edge_vec, filtered_ways: HashMap::new(), nodes_used: HashSet::new() };
 
     build_routing_data(parse_result)
 }
@@ -151,11 +159,11 @@ fn first_parse(filename: &OsString, parse_result: &mut ParseData) {
     for obj in pbf.iter() {
         match obj {
             OsmObj::Way(way) => {
-                if filter_way(&way, &invalid_values) {
+                if let Some(constraints) = filter_way(&way, &invalid_values) {
                     for node in way.nodes {
                         parse_result.nodes_used.insert(node);
                     }
-                    parse_result.filtered_ways.insert(way.id);
+                    parse_result.filtered_ways.insert(way.id, constraints);
                 }
             }
             _ => {}
@@ -186,17 +194,17 @@ fn third_parse(filename: &OsString, parse_result: &mut ParseData) {
     for obj in pbf.iter() {
         match obj {
             OsmObj::Way(way) => {
-                if parse_result.filtered_ways.remove(&way.id) {
+                if let Some(constraints) = parse_result.filtered_ways.remove(&way.id) {
                     for node_pair in way.nodes.windows(2) {
                         if let (Some(from), Some(to)) = (node_pair.first(), node_pair.last()) {
                             if let (Some(from_node), Some(to_node)) = (parse_result.nodes.get(from), parse_result.nodes.get(to)) {
                                 let edge_length = calculate_distance(from_node, to_node);
-                                let edge = ParsedEdge { id_from: from.clone(), id_to: to.clone(), length: edge_length.clone() };
+                                let edge = ParsedEdge { id_from: from.clone(), id_to: to.clone(), length: edge_length.clone(), constraints: constraints };
                                 parse_result.edges.push(edge);
 
                                 if let Some(val) = way.tags.get("oneway") {
                                     if val == "yes" {
-                                        let edge_reverse = ParsedEdge { id_from: to.clone(), id_to: from.clone(), length: edge_length.clone() };
+                                        let edge_reverse = ParsedEdge { id_from: to.clone(), id_to: from.clone(), length: edge_length.clone(), constraints: constraints };
                                         parse_result.edges.push(edge_reverse);
                                     }
                                 }
@@ -225,26 +233,30 @@ fn build_routing_data(mut parse_result: ParseData) -> RoutingData {
     for (i, node) in routing_data.internal_nodes.iter().enumerate() {
         if let Some(pos) = parse_result.nodes.remove(node) {
             routing_data.osm_nodes.insert(node.clone(), OsmNode { position: pos, internal_id: i });
+        }
+    }
 
-            if let Some(edge) = parse_result.edges.last() {
-                if edge.id_from == *node {
-                    routing_data.internal_offset[i] = routing_data.internal_edges.len();
-                }
+    for (i, node) in routing_data.internal_nodes.iter().enumerate() {
+        if let Some(edge) = parse_result.edges.last() {
+            if edge.id_from == *node {
+                routing_data.internal_offset[i] = routing_data.internal_edges.len();
             }
+        }
 
-            loop {
-                if let Some(edge) = parse_result.edges.last() {
-                    if edge.id_from != *node {
-                        break;
-                    }
-                } else {
+        loop {
+            if let Some(edge) = parse_result.edges.last() {
+                if edge.id_from != *node {
                     break;
                 }
-                if let Some(edge) = parse_result.edges.pop() {
-                    routing_data.internal_edges.push(RoutingEdge { target: edge.id_to as usize, length: edge.length, constraints: 0b00000001 });
-                } else {
-                    break;
-                }
+            } else {
+                break;
+            }
+            if let Some(edge) = parse_result.edges.pop() {
+                let internal_target = routing_data.osm_nodes.get(&edge.id_to).unwrap().internal_id;
+
+                routing_data.internal_edges.push(RoutingEdge { target: internal_target, length: edge.length, constraints: edge.constraints });
+            } else {
+                break;
             }
         }
     }
@@ -290,10 +302,12 @@ fn init_filter_list(invalid_values: &mut HashSet<&str>) {
     invalid_values.insert("construction");
 }
 
-fn filter_way(way: &::osmpbfreader::Way, invalid_values: &HashSet<&str>) -> bool {
+fn filter_way(way: &::osmpbfreader::Way, invalid_values: &HashSet<&str>) -> Option<u8> {
     if let Some(value) = way.tags.get("highway") {
-        return !invalid_values.contains(&value.as_str());
-    } else {
-        return false;
+        if !invalid_values.contains(&value.as_str()) {
+            // TODO really check constraints
+            return Some(FLAG_CAR | FLAG_WALK | FLAG_BIKE);
+        }
     }
+    return None;
 }
