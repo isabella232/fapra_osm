@@ -9,6 +9,7 @@ use staticfile::Static;
 use mount::Mount;
 use ordered_float::OrderedFloat;
 use urlencoded::UrlEncodedQuery;
+use rustc_serialize::json;
 
 #[derive(Copy, Clone)]
 struct HeapEntry {
@@ -51,7 +52,7 @@ pub fn start(data: ::parser::RoutingData) {
 
 fn get_hello(req: &mut Request, data: &::parser::RoutingData) -> IronResult<Response> {
     println!("Running get_hello handler, URL path: {:?}", req.url.path);
-    Ok(Response::with((status::Ok, "Hello!")))
+    Ok(Response::with((status::Ok, format!("HI! nodes: {}, edges: {}", data.internal_nodes.len(), data.internal_edges.len()))))
 }
 
 fn get_graph(req: &mut Request, data: &::parser::RoutingData) -> IronResult<Response> {
@@ -65,9 +66,16 @@ fn get_route(req: &mut Request, data: &::parser::RoutingData) -> IronResult<Resp
         let target = query_map.get("target").unwrap().first().unwrap().parse::<i64>().unwrap();
 
 
-        let path = run_dijkstra(&data, source, target, ::parser::FLAG_CAR);
+        if let Some(path) = run_dijkstra(&data, source, target, ::parser::FLAG_CAR) {
+            let mut pos_vec = Vec::new();
+            for pos in &path {
+                pos_vec.push(vec![pos.lat, pos.lon]);
+            }
 
-        Ok(Response::with((status::Ok, format!("{:?}", path))))
+            Ok(Response::with((status::Ok, json::encode(&pos_vec).unwrap())))
+        } else {
+            Ok(Response::with((status::NotFound)))
+        }
     } else {
         Ok(Response::with((status::InternalServerError)))
     }

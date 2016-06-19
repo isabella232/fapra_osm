@@ -6,24 +6,31 @@
     <link rel="stylesheet" href="leaflet.css"/>
     <link rel="stylesheet" href="style.css"/>
     <script src="leaflet.js"></script>
-
-
+    <script src="jquery-3.0.0.min.js"></script>
 </head>
 
 <body>
 <div id="osm_map"></div>
+<div id="sidebar">
+    <button id="do_routing">Do routing</button>
+</div>
 
 <script>
     var mymap = L.map('osm_map').setView([48.7836043, 9.1821771], 8);
 
-
     L.tileLayer('http://{s}.tile.osm.org/{z}/{x}/{y}.png', {
         maxZoom: 18,
         attribution: 'Map data &copy; <a href="http://openstreetmap.org">OpenStreetMap</a> contributors, ' +
-        '<a href="http://creativecommons.org/licenses/by-sa/2.0/">CC-BY-SA</a>, ' +
-        'Imagery © <a href="http://mapbox.com">Mapbox</a>',
-        id: 'mapbox.streets'
+        '<a href="http://creativecommons.org/licenses/by-sa/2.0/">CC-BY-SA</a>, '
     }).addTo(mymap);
+
+    $("button[id$='do_routing']").click(function () {
+        console.log("asdk");
+        $.getJSON("api/route?source=1133751511&target=27281797", function (result) {
+            L.polyline(result).addTo(mymap);
+        });
+    });
+
 </script>
 </body>
 
