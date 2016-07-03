@@ -1,5 +1,6 @@
 extern crate osmpbfreader;
 extern crate time;
+#[macro_use]
 extern crate iron;
 extern crate staticfile;
 extern crate mount;
@@ -10,6 +11,7 @@ extern crate urlencoded;
 extern crate ordered_float;
 
 use std::ffi::OsString;
+use std::fs;
 use std::fs::File;
 use std::io::{BufWriter, BufReader};
 
@@ -20,49 +22,60 @@ use bincode::rustc_serialize::{encode_into, decode_from};
 
 mod parser;
 mod server;
+mod data;
+
+const GRAPH_FILE_NAME: &'static str = "graph.bin.gz";
 
 fn main() {
-    let parse_flag = false;
+	let data = match fs::metadata(GRAPH_FILE_NAME) {
+		Ok(metadata) => {
+			if metadata.is_file() {
+				read_from_disk()
+			} else {
+				perform_parse()
+			}
+		},
+		Err(_) => perform_parse(),
+	};
 
-    let data = match parse_flag {
-        true => perform_parse(),
-        false => read_from_disk(),
-    };
-
-    perform_server(data);
+	perform_server(data);
 }
 
-fn perform_server(data: parser::RoutingData) {
-    server::start(data);
+fn perform_server(data: data::RoutingData) {
+	server::start(data);
 }
 
-fn perform_parse() -> parser::RoutingData {
-    let default_file = OsString::from("/home/zsdn/baden-wuerttemberg-latest.osm.pbf".to_string());
-    //let default_file = OsString::from("/home/zsdn/germany-latest.osm.pbf".to_string());
+fn perform_parse() -> data::RoutingData {
+	let default_file = OsString::from("/home/zsdn/baden-wuerttemberg-latest.osm.pbf".to_string());
+	//let default_file = OsString::from("/home/zsdn/germany-latest.osm.pbf".to_string());
 
-    let args: Vec<OsString> = std::env::args_os().collect();
-    let data = match args.len() {
-        1 => parser::read_file(&default_file),
-        2 => parser::read_file(&args[1]),
-        _ => build_dummy_data(),
-    };
-    write_to_disk(&data);
-    return data;
+	let args: Vec<OsString> = std::env::args_os().collect();
+	let data = match args.len() {
+		1 => parser::read_file(&default_file),
+		2 => parser::read_file(&args[1]),
+		_ => build_dummy_data(),
+	};
+	write_to_disk(&data);
+	return data;
 }
 
-fn write_to_disk(data: &parser::RoutingData) {
-    let writer = BufWriter::new(File::create("graph.bin.gz").unwrap());
-    let mut encoder = ZlibEncoder::new(writer, Compression::Best);
-    encode_into(&data, &mut encoder, bincode::SizeLimit::Infinite).unwrap();
+fn write_to_disk(data: &data::RoutingData) {
+	println!("Writing graph data to file {}.. ", GRAPH_FILE_NAME);
+	let writer = BufWriter::new(File::create(GRAPH_FILE_NAME).unwrap());
+	let mut encoder = ZlibEncoder::new(writer, Compression::Best);
+	encode_into(&data, &mut encoder, bincode::SizeLimit::Infinite).unwrap();
+	println!("Writing graph data to file {}.. OK", GRAPH_FILE_NAME);
 }
 
-fn read_from_disk() -> parser::RoutingData {
-    let reader = BufReader::new(File::open("graph.bin.gz").unwrap());
-    let mut decoder = ZlibDecoder::new(reader);
-    let decoded: parser::RoutingData = decode_from(&mut decoder, bincode::SizeLimit::Infinite).unwrap();
-    return decoded;
+fn read_from_disk() -> data::RoutingData {
+	println!("Reading graph data from file {}.. ", GRAPH_FILE_NAME);
+	let reader = BufReader::new(File::open(GRAPH_FILE_NAME).unwrap());
+	let mut decoder = ZlibDecoder::new(reader);
+	let decoded: data::RoutingData = decode_from(&mut decoder, bincode::SizeLimit::Infinite).unwrap();
+	println!("Reading graph data from file {}.. OK", GRAPH_FILE_NAME);
+	return decoded;
 }
 
-fn build_dummy_data() -> parser::RoutingData {
-    parser::build_dummy_data()
+fn build_dummy_data() -> data::RoutingData {
+	parser::build_dummy_data()
 }
