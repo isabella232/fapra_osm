@@ -39,6 +39,12 @@ struct WayDefaults {
 	default: WayConstraints
 }
 
+enum OneWay {
+	NO,
+	YES,
+	REVERSE
+}
+
 
 pub fn read_file(filename: &OsString) -> ::data::RoutingData {
 	println!("will read file: {:?}", &filename);
@@ -169,17 +175,22 @@ fn third_parse(filename: &OsString, parse_result: &mut ParseData) {
 	for obj in pbf.iter() {
 		match obj {
 			OsmObj::Way(way) => {
+				let one_way = check_oneway(&way);
 				if let Some(constraints) = parse_result.filtered_ways.remove(&way.id) {
 					for node_pair in way.nodes.windows(2) {
 						if let (Some(from), Some(to)) = (node_pair.first(), node_pair.last()) {
 							if let (Some(from_node), Some(to_node)) = (parse_result.nodes.get(from), parse_result.nodes.get(to)) {
 								let edge_length = calculate_distance(from_node, to_node);
-								let edge = ParsedEdge { id_from: from.clone(), id_to: to.clone(), length: edge_length.clone(), constraints: constraints.access, speed: constraints.speed };
-								parse_result.edges.push(edge);
+								let edge = ParsedEdge { id_from: *from, id_to: *to, length: edge_length, constraints: constraints.access, speed: constraints.speed };
+								let edge_reverse = ParsedEdge { id_from: *to, id_to: *from, length: edge_length, constraints: constraints.access, speed: constraints.speed };
 
-								if !is_oneway(&way) {
-									let edge_reverse = ParsedEdge { id_from: to.clone(), id_to: from.clone(), length: edge_length.clone(), constraints: constraints.access, speed: constraints.speed };
-									parse_result.edges.push(edge_reverse);
+								match one_way {
+									OneWay::NO => {
+										parse_result.edges.push(edge);
+										parse_result.edges.push(edge_reverse)
+									},
+									OneWay::YES => { parse_result.edges.push(edge) },
+									OneWay::REVERSE => { parse_result.edges.push(edge_reverse) },
 								}
 							}
 						}
@@ -271,14 +282,14 @@ fn init_filter_lists() -> WayDefaults {
     defaults.lookup.insert("trunk", 			WayConstraints { speed: 120.0,  access:  ::data::FLAG_CAR });
     defaults.lookup.insert("motorway", 			WayConstraints { speed: 100.0,  access:  ::data::FLAG_CAR });
     defaults.lookup.insert("secondary", 		WayConstraints { speed: 100.0,  access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("tertiary", 			WayConstraints { speed: 80.0,  	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("unclassified", 		WayConstraints { speed: 50.0,  	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("residential", 		WayConstraints { speed: 30.0, 	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("service", 			WayConstraints { speed: 1.00, 	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("motorway_link", 	WayConstraints { speed: 130.0,  access:  ::data::FLAG_CAR });
-    defaults.lookup.insert("trunk_link", 		WayConstraints { speed: 120.0,  access:  ::data::FLAG_CAR });
-    defaults.lookup.insert("primary_link", 		WayConstraints { speed: 100.0,  access:  ::data::FLAG_CAR });
-    defaults.lookup.insert("secondary_link", 	WayConstraints { speed: 100.0,  access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("tertiary", 			WayConstraints { speed: 80.0,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("unclassified", 		WayConstraints { speed: 50.0,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("residential", 		WayConstraints { speed: 30.0,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("service", 			WayConstraints { speed: 1.00,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("motorway_link", 	WayConstraints { speed: 80.0,	access:  ::data::FLAG_CAR });
+    defaults.lookup.insert("trunk_link", 		WayConstraints { speed: 80.0,	access:  ::data::FLAG_CAR });
+    defaults.lookup.insert("primary_link", 		WayConstraints { speed: 80.0,	access:  ::data::FLAG_CAR });
+    defaults.lookup.insert("secondary_link", 	WayConstraints { speed: 80.0,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
     defaults.lookup.insert("tertiary_link", 	WayConstraints { speed: 8.00, 	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
     defaults.lookup.insert("living_street", 	WayConstraints { speed: 5.0,  	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
     defaults.lookup.insert("pedestrian", 		WayConstraints { speed: 5.0,  	access:  ::data::FLAG_WALK });
@@ -320,13 +331,27 @@ fn filter_way(way: &::osmpbfreader::Way, defaults: &WayDefaults) -> Option<WayCo
 	return None;
 }
 
-fn is_oneway(way: &::osmpbfreader::Way) -> bool {
-	let oneway = check_key_and_value(way, "oneway", "true");
+fn check_oneway(way: &::osmpbfreader::Way) -> OneWay {
 	let highway_1 = check_key_and_value(way, "highway", "motorway");
 	let highway_2 = check_key_and_value(way, "highway", "motorway_link");
 	let roundabout = check_key_and_value(way, "junction", "roundabout");
 
-	return oneway || highway_1 || highway_2 || roundabout;
+	if highway_1 || highway_2 || roundabout {
+		return OneWay::YES;
+	}
+
+	let yes = vec!["true", "1", "yes"];
+	let reverse = vec!["-1", "reverse"];
+
+	if let Some(entry) = way.tags.get("oneway") {
+		if yes.contains(&entry.as_str()) {
+			return OneWay::YES;
+		} else if reverse.contains(&entry.as_str()) {
+			return OneWay::REVERSE;
+		}
+	}
+
+	return OneWay::NO;
 }
 
 fn bike_denied(way: &::osmpbfreader::Way) -> bool {
@@ -354,7 +379,7 @@ fn check_speed(data: &mut WayConstraints, way: &::osmpbfreader::Way) {
 	if let Some(full_string) = way.tags.get("maxspeed") {
 		let mut elements = full_string.split_whitespace();
 		if let Some(speed_string) = elements.next() {
-			if let Ok(speed) = speed_string.parse::<u32>() {
+			if let Ok(speed) = speed_string.parse::<u32> () {
 				data.speed = speed as f64;
 				if let Some(unit_string) = elements.next() {
 					if unit_string.starts_with("mph") {
