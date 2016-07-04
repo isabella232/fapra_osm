@@ -1,35 +1,84 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <title>OSM Routing</title>
-    <link rel="stylesheet" href="leaflet.css"/>
-    <link rel="stylesheet" href="style.css"/>
-    <script src="leaflet.js"></script>
-    <script src="jquery-3.0.0.min.js"></script>
+	<meta charset="UTF-8">
+	<title>OSM Routing</title>
+	<link rel="stylesheet" href="leaflet.css"/>
+	<link rel="stylesheet" href="style.css"/>
+	<script src="leaflet.js"></script>
+	<script src="jquery-3.0.0.min.js"></script>
 </head>
 
 <body>
 <div id="osm_map"></div>
 <div id="sidebar">
-    <button id="do_routing">Do routing</button>
+	<form id="routing_form" action="api/route" method="get">
+		<label for="source">Source:</label>
+		<input type="text" id="source" name="source" value="1133751511"/><br/>
+
+		<label for="target">Target:</label>
+		<input type="text" id="target" name="target" value="27281797"/><br/>
+
+		<label for="vehicle">Vehicle:</label>
+		<select id="vehicle" name="vehicle">
+			<option value="car">Car</option>
+			<option value="bike">Bike</option>
+			<option value="walk">Walk</option>
+		</select><br/>
+
+		<label for="metric">Metric:</label>
+		<select id="metric" name="metric">
+			<option value="distance">Distance</option>
+			<option value="time">Time</option>
+		</select><br/>
+
+		<input type="submit" id="submitButton" name="submitButton" value="Submit">
+	</form>
+
+	<div id="result_distance"></div>
+	<div id="result_time"></div>
+	<div id="result_duration"></div>
 </div>
 
 <script>
-    var mymap = L.map('osm_map').setView([48.7836043, 9.1821771], 8);
+	var mymap = L.map('osm_map').setView([48.7836043, 9.1821771], 8);
+	var route;
 
-    L.tileLayer('http://{s}.tile.osm.org/{z}/{x}/{y}.png', {
-        maxZoom: 18,
-        attribution: 'Map data &copy; <a href="http://openstreetmap.org">OpenStreetMap</a> contributors, ' +
-        '<a href="http://creativecommons.org/licenses/by-sa/2.0/">CC-BY-SA</a>'
-    }).addTo(mymap);
+	L.tileLayer('http://{s}.tile.osm.org/{z}/{x}/{y}.png', {
+		maxZoom: 18,
+		attribution: 'Map data &copy; <a href="http://openstreetmap.org">OpenStreetMap</a> contributors, ' +
+		'<a href="http://creativecommons.org/licenses/by-sa/2.0/">CC-BY-SA</a>'
+	}).addTo(mymap);
 
-    $("button[id$='do_routing']").click(function () {
-        $.getJSON("api/route?source=1133751511&target=27281797", function (result) {
-            console.log(result);
-            L.polyline(result.route.path).addTo(mymap);
-        });
-    });
+	$("#routing_form").submit(function (event) {
+
+		event.preventDefault();
+
+		var $form = $(this);
+		var url = $form.attr('action');
+
+		$.getJSON(url, {
+			source: $('#source').val(),
+			target: $('#target').val(),
+			vehicle: $('#vehicle').val(),
+			metric: $('#metric').val()
+		}, function (result) {
+			//console.log(result);
+
+			if (route != null) {
+				mymap.removeLayer(route);
+			}
+
+			var new_route = L.polyline(result.route.path);
+			new_route.addTo(mymap);
+
+			$('#result_distance').html("travel distance: " + result.route.distance / 1000.0 + "km");
+			$('#result_time').html("travel time: " + result.route.time / 60.0 + "min");
+			$('#result_duration').html("route calculation took " + result.duration + "ms.");
+
+			route = new_route;
+		});
+	});
 
 </script>
 </body>
