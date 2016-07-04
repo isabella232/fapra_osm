@@ -107,12 +107,12 @@ fn test_routing_data_gen() {
 }
 
 pub fn build_dummy_data() -> ::data::RoutingData {
-	let edge_vec = vec![ParsedEdge{id_from: 5000, id_to: 5001, length: 1.0, constraints: ::data::FLAG_CAR, speed: 100.0},
-                        ParsedEdge{id_from: 5000, id_to: 5002, length: 1.0, constraints: ::data::FLAG_CAR, speed: 100.0},
-                        ParsedEdge{id_from: 5002, id_to: 5001, length: 1.0, constraints: ::data::FLAG_CAR, speed: 100.0},
-                        ParsedEdge{id_from: 5002, id_to: 5003, length: 1.0, constraints: ::data::FLAG_CAR, speed: 100.0},
-                        ParsedEdge{id_from: 5003, id_to: 5000, length: 1.0, constraints: ::data::FLAG_CAR, speed: 100.0},
-                        ParsedEdge{id_from: 5003, id_to: 5004, length: 1.0, constraints: ::data::FLAG_CAR, speed: 100.0},
+	let edge_vec = vec![ParsedEdge{id_from: 5000, id_to: 5001, length: 1.0, constraints: ::data::FLAG_CAR, speed: 13.89},
+                        ParsedEdge{id_from: 5000, id_to: 5002, length: 10.0, constraints: ::data::FLAG_CAR, speed: 13.89},
+                        ParsedEdge{id_from: 5002, id_to: 5001, length: 100.0, constraints: ::data::FLAG_CAR, speed: 13.89},
+                        ParsedEdge{id_from: 5002, id_to: 5003, length: 1000.0, constraints: ::data::FLAG_CAR, speed: 13.89},
+                        ParsedEdge{id_from: 5003, id_to: 5000, length: 10000.0, constraints: ::data::FLAG_CAR, speed: 13.89},
+                        ParsedEdge{id_from: 5003, id_to: 5004, length: 100000.0, constraints: ::data::FLAG_CAR, speed: 13.89},
 ];
 
 
@@ -363,9 +363,9 @@ fn bike_denied(way: &::osmpbfreader::Way) -> bool {
 
 fn walk_denied(way: &::osmpbfreader::Way) -> bool {
 	let motorroad = check_key_and_value(way, "motorroad", "true");
-	let no_bike = check_key_and_value(way, "foot", "false");
+	let no_walk = check_key_and_value(way, "foot", "false");
 
-	return motorroad || no_bike;
+	return motorroad || no_walk;
 }
 
 fn check_key_and_value(way: &::osmpbfreader::Way, key: &str, value: &str) -> bool {
@@ -390,5 +390,5 @@ fn check_speed(data: &mut WayConstraints, way: &::osmpbfreader::Way) {
 		}
 	}
 
-	data.speed = 1000.0 * data.speed / 3.6;
+	data.speed = data.speed / 3.6;
 }
