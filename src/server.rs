@@ -128,7 +128,14 @@ fn get_route(req: &mut Request, data: &::data::RoutingData) -> IronResult<Respon
 }
 
 fn run_dijkstra<F>(data: &::data::RoutingData, source_osm: i64, target_osm: i64, constraints: u8, cost_func: F) -> Option<Route>
-	where F: Fn(&::data::RoutingEdge) -> f64 {
+	where F: Fn(&::data::RoutingEdge, &f64) -> f64 {
+	let vspeed = match constraints {
+		::data::FLAG_CAR => 130.0 / 3.6,
+		::data::FLAG_BIKE => 15.0 / 3.6,
+		::data::FLAG_WALK => 5.0 / 3.6,
+		_ => 130.0 / 3.6
+	};
+
 	let mut distance = vec![f64::INFINITY; data.internal_nodes.len()];
 	let mut predecessor = vec![0; data.internal_nodes.len()];
 	let mut predecessor_edge = vec![0; data.internal_nodes.len()];
@@ -141,25 +148,24 @@ fn run_dijkstra<F>(data: &::data::RoutingData, source_osm: i64, target_osm: i64,
 	distance[source] = 0.0;
 	heap.push(HeapEntry { node: source, cost: 0.0 });
 
+	println!("begin dijkstra");
+
 	while let Some(HeapEntry { node, cost }) = heap.pop() {
 		if node == target {
 			println!("found route");
-			return build_route(source, target, &predecessor, &predecessor_edge, &data);
+			return build_route(source, target, &predecessor, &predecessor_edge, &data, &vspeed);
 		}
 
 		if cost > distance[node] { continue; }
 
 		let (start, end) = offset_lookup(&node, &data);
-
-
 		let edges = &data.internal_edges[start..end];
-
 
 		for (i, edge) in edges.iter().enumerate() {
 			if constraints & edge.constraints == 0 {
 				continue;
 			}
-			let neighbor = HeapEntry { node: edge.target, cost: cost + cost_func(&edge) };
+			let neighbor = HeapEntry { node: edge.target, cost: cost + cost_func(&edge, &vspeed) };
 
 			if neighbor.cost < distance[neighbor.node] {
 				distance[edge.target] = neighbor.cost;
@@ -176,19 +182,23 @@ fn run_dijkstra<F>(data: &::data::RoutingData, source_osm: i64, target_osm: i64,
 fn offset_lookup(node: &usize, data: &::data::RoutingData) -> (usize, usize) {
 	let start = data.internal_offset[*node];
 	let next_node = node + 1;
-	let max_end = data.internal_offset.len();
+	let max_end = data.internal_offset[data.internal_offset.len() - 1];
 
-	if next_node >= max_end {
+	if next_node > data.internal_offset.len() - 1 {
+		assert!(start <= max_end, "invalid offset lookup max!");
+
 		return (start, max_end);
 	}
 
 	let end = data.internal_offset[next_node];
 
+	assert!(start <= end, "invalid offset lookup!");
+
 	return (start, end);
 }
 
 
-fn build_route(source: usize, target: usize, predecessor: &Vec<usize>, predecessor_edge: &Vec<usize>, data: &::data::RoutingData) -> Option<Route> {
+fn build_route(source: usize, target: usize, predecessor: &Vec<usize>, predecessor_edge: &Vec<usize>, data: &::data::RoutingData, vspeed: &f64) -> Option<Route> {
 	let mut result = Route { distance: 0.0, time: 0.0, path: Vec::new() };
 
 	let mut node = target;
@@ -202,9 +212,15 @@ fn build_route(source: usize, target: usize, predecessor: &Vec<usize>, predecess
 		let osm_id = data.internal_nodes[node];
 		let pos = data.osm_nodes.get(&osm_id).unwrap().position;
 
+		let mut speed = data.internal_edges[edge].speed;
+
+		if *vspeed < speed {
+			speed = *vspeed;
+		}
+
 		result.path.push([pos.lat, pos.lon]);
 		result.distance += data.internal_edges[edge].length;
-		result.time += data.internal_edges[edge].length / data.internal_edges[edge].speed;
+		result.time += data.internal_edges[edge].length / speed;
 
 		node = predecessor[node];
 		edge = predecessor_edge[node];
@@ -217,12 +233,18 @@ fn build_route(source: usize, target: usize, predecessor: &Vec<usize>, predecess
 	return Some(result);
 }
 
-fn edge_cost_distance(edge: &::data::RoutingEdge) -> f64 {
+fn edge_cost_distance(edge: &::data::RoutingEdge, vspeed: &f64) -> f64 {
 	return edge.length;
 }
 
-fn edge_cost_time(edge: &::data::RoutingEdge) -> f64 {
-	return edge.length / edge.speed;
+fn edge_cost_time(edge: &::data::RoutingEdge, vspeed: &f64) -> f64 {
+	let mut speed = edge.speed;
+
+	if *vspeed < speed {
+		speed = *vspeed;
+	}
+
+	return edge.length / speed;
 }
 
 #[test]
