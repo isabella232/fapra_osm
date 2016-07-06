@@ -41,6 +41,18 @@
 </div>
 
 <script>
+
+	var target_icon = L.icon({
+		iconUrl: 'images/marker-icon2.png',
+		iconRetinaUrl: 'images/marker-icon2.png',
+		iconSize: [25, 41],
+		iconAnchor: [12, 41],
+		popupAnchor: [1, -34],
+		shadowUrl: 'images/marker-shadow.png',
+		shadowRetinaUrl: 'images/marker-shadow.png',
+		shadowSize: [41, 41],
+	});
+
 	var mymap = L.map('osm_map').setView([48.7836043, 9.1821771], 8);
 	var route;
 	var source;
@@ -71,7 +83,7 @@
 			}
 			target = e.latlng;
 			$('#target').val(target.lat + "," + target.lng);
-			target_marker = L.marker(target);
+			target_marker = L.marker(target, {icon: target_icon});
 			target_marker.addTo(mymap);
 		}
 		toggle = !toggle;
