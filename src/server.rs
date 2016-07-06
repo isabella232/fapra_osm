@@ -130,13 +130,9 @@ fn get_route(req: &mut Request, data: &::data::State) -> IronResult<Response> {
 		let end = PreciseTime::now();
 		//println!("route: {:?}", result);
 
-		if let Some(route) = result {
-			let result = RoutingResult { duration: start.to(end).num_milliseconds(), route: Some(route) };
+		let result = RoutingResult { duration: start.to(end).num_milliseconds(), route: result };
 
-			Ok(Response::with((status::Ok, json::encode(&result).unwrap())))
-		} else {
-			Ok(Response::with((status::NotFound)))
-		}
+		Ok(Response::with((status::Ok, json::encode(&result).unwrap())))
 	} else {
 		Ok(Response::with((status::InternalServerError)))
 	}
@@ -190,7 +186,7 @@ fn run_dijkstra<F>(data: &::data::RoutingData, source_osm: i64, target_osm: i64,
 			}
 		}
 	}
-
+	println!("no route found");
 	return None;
 }
 

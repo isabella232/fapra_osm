@@ -110,11 +110,17 @@
 				mymap.removeLayer(route);
 			}
 
-			var new_route = L.polyline(result.route.path);
-			new_route.addTo(mymap);
+			if (result.route == null) {
+				$('#result_distance').html("no route found");
+				$('#result_time').html("no route found");
 
-			$('#result_distance').html("travel distance: " + result.route.distance / 1000.0 + "km");
-			$('#result_time').html("travel time: " + result.route.time / 60.0 + "min");
+			} else {
+				var new_route = L.polyline(result.route.path);
+				new_route.addTo(mymap);
+
+				$('#result_distance').html("travel distance: " + result.route.distance / 1000.0 + "km");
+				$('#result_time').html("travel time: " + result.route.time / 60.0 + "min");
+			}
 			$('#result_duration').html("route calculation took " + result.duration + "ms.");
 
 			route = new_route;
