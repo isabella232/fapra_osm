@@ -24,10 +24,10 @@ mod parser;
 mod server;
 mod data;
 
-const GRAPH_FILE_NAME: &'static str = "graph.bin.gz";
+const STATE_FILE_NAME: &'static str = "state.bin.gz";
 
 fn main() {
-	let data = match fs::metadata(GRAPH_FILE_NAME) {
+	let data = match fs::metadata(STATE_FILE_NAME) {
 		Ok(metadata) => {
 			if metadata.is_file() {
 				read_from_disk()
@@ -38,14 +38,10 @@ fn main() {
 		Err(_) => perform_parse(),
 	};
 
-	perform_server(data);
-}
-
-fn perform_server(data: data::RoutingData) {
 	server::start(data);
 }
 
-fn perform_parse() -> data::RoutingData {
+fn perform_parse() -> data::State {
 	let default_file = OsString::from("/home/zsdn/baden-wuerttemberg-latest.osm.pbf".to_string());
 	//let default_file = OsString::from("/home/zsdn/germany-latest.osm.pbf".to_string());
 
@@ -59,23 +55,23 @@ fn perform_parse() -> data::RoutingData {
 	return data;
 }
 
-fn write_to_disk(data: &data::RoutingData) {
-	println!("Writing graph data to file {}.. ", GRAPH_FILE_NAME);
-	let writer = BufWriter::new(File::create(GRAPH_FILE_NAME).unwrap());
+fn write_to_disk(data: &data::State) {
+	println!("Writing state data to file {}.. ", STATE_FILE_NAME);
+	let writer = BufWriter::new(File::create(STATE_FILE_NAME).unwrap());
 	let mut encoder = ZlibEncoder::new(writer, Compression::Best);
 	encode_into(&data, &mut encoder, bincode::SizeLimit::Infinite).unwrap();
-	println!("Writing graph data to file {}.. OK", GRAPH_FILE_NAME);
+	println!("Writing state data to file {}.. OK", STATE_FILE_NAME);
 }
 
-fn read_from_disk() -> data::RoutingData {
-	println!("Reading graph data from file {}.. ", GRAPH_FILE_NAME);
-	let reader = BufReader::new(File::open(GRAPH_FILE_NAME).unwrap());
+fn read_from_disk() -> data::State {
+	println!("Reading state data from file {}.. ", STATE_FILE_NAME);
+	let reader = BufReader::new(File::open(STATE_FILE_NAME).unwrap());
 	let mut decoder = ZlibDecoder::new(reader);
-	let decoded: data::RoutingData = decode_from(&mut decoder, bincode::SizeLimit::Infinite).unwrap();
-	println!("Reading graph data from file {}.. OK", GRAPH_FILE_NAME);
+	let decoded: data::State = decode_from(&mut decoder, bincode::SizeLimit::Infinite).unwrap();
+	println!("Reading state data from file {}.. OK", STATE_FILE_NAME);
 	return decoded;
 }
 
-fn build_dummy_data() -> data::RoutingData {
+fn build_dummy_data() -> data::State {
 	parser::build_dummy_data()
 }

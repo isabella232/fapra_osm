@@ -4,6 +4,7 @@ use std::path::Path;
 use std::ffi::OsString;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::f64;
 
 use osmpbfreader::OsmObj;
 use osmpbfreader::OsmPbfReader;
@@ -46,7 +47,7 @@ enum OneWay {
 }
 
 
-pub fn read_file(filename: &OsString) -> ::data::RoutingData {
+pub fn read_file(filename: &OsString) -> ::data::State {
 	println!("will read file: {:?}", &filename);
 
 	let mut parse_result = ParseData { nodes_used: HashSet::new(), filtered_ways: HashMap::new(), nodes: HashMap::new(), edges: Vec::new() };
@@ -91,7 +92,16 @@ pub fn read_file(filename: &OsString) -> ::data::RoutingData {
 	println!("B  | osm_nodes:  {}", routing_data.osm_nodes.len());
 	println!("B  | duration: {}", start_b.to(end_b));
 
-	return routing_data;
+	let start_g = PreciseTime::now();
+	let grid = build_grid(&routing_data);
+	let end_g = PreciseTime::now();
+
+	println!("G  | bounds: {:?}", grid.bbox);
+	println!("G  | bin_cnt_lat: {}", grid.bin_count_lat);
+	println!("G  | bin_cnt_lon: {}", grid.bin_count_lon);
+	println!("G  | duration: {}", start_g.to(end_g));
+
+	return ::data::State { routing_data: routing_data, grid: grid };
 }
 
 #[test]
@@ -106,7 +116,7 @@ fn test_routing_data_gen() {
 	assert_eq!(routing_data.internal_offset, vec![0, 2, 2, 4, 5]);
 }
 
-pub fn build_dummy_data() -> ::data::RoutingData {
+pub fn build_dummy_data() -> ::data::State {
 	let edge_vec = vec![ParsedEdge{id_from: 5000, id_to: 5001, length: 1.0, constraints: ::data::FLAG_CAR, speed: 13.89},
                         ParsedEdge{id_from: 5000, id_to: 5002, length: 10.0, constraints: ::data::FLAG_CAR, speed: 13.89},
                         ParsedEdge{id_from: 5002, id_to: 5001, length: 100.0, constraints: ::data::FLAG_CAR, speed: 13.89},
@@ -126,7 +136,9 @@ pub fn build_dummy_data() -> ::data::RoutingData {
 
 	let parse_result = ParseData { nodes: nodes_map, edges: edge_vec, filtered_ways: HashMap::new(), nodes_used: HashSet::new() };
 
-	build_routing_data(parse_result)
+	let routing_data = build_routing_data(parse_result);
+	let grid = build_grid(&routing_data);
+	::data::State { routing_data: routing_data, grid: grid }
 }
 
 
@@ -180,7 +192,7 @@ fn third_parse(filename: &OsString, parse_result: &mut ParseData) {
 					for node_pair in way.nodes.windows(2) {
 						if let (Some(from), Some(to)) = (node_pair.first(), node_pair.last()) {
 							if let (Some(from_node), Some(to_node)) = (parse_result.nodes.get(from), parse_result.nodes.get(to)) {
-								let edge_length = calculate_distance(from_node, to_node);
+								let edge_length = from_node.distance(&to_node);
 								let edge = ParsedEdge { id_from: *from, id_to: *to, length: edge_length, constraints: constraints.access, speed: constraints.speed };
 								let edge_reverse = ParsedEdge { id_from: *to, id_to: *from, length: edge_length, constraints: constraints.access, speed: constraints.speed };
 
@@ -258,22 +270,58 @@ fn build_routing_data(mut parse_result: ParseData) -> ::data::RoutingData {
 	return routing_data;
 }
 
+fn build_grid(routing_data: &::data::RoutingData) -> ::data::Grid {
+	let mut bbox = calculate_bounding_box(&routing_data);
 
-fn calculate_distance(node1: &::data::Position, node2: &::data::Position) -> f64 {
-	let lat1 = node1.lat;
-	let lat2 = node2.lat;
-	let lng1 = node1.lon;
-	let lng2 = node2.lon;
+	let grid_padding = 0.001;
 
-	let earth_radius: f64 = 6371000.0; //meters
-	let d_lat = (lat2 - lat1).to_radians();
-	let d_lng = (lng2 - lng1).to_radians();
-	let a = (d_lat / 2.0).sin() * (d_lat / 2.0).sin() + lat1.to_radians().cos() * lat2.to_radians().cos() * (d_lng / 2.0).sin() * (d_lng / 2.0).sin();
-	let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
-	let dist = earth_radius * c;
+	bbox.min_lat -= grid_padding;
+	bbox.min_lon -= grid_padding;
+	bbox.max_lat += grid_padding;
+	bbox.max_lon += grid_padding;
 
-	return dist;
+	let bin_count = routing_data.osm_nodes.len() / 1024;
+
+	let cnt_lat = (bin_count / ((bbox.max_lat - bbox.min_lat) as usize)) / 2;
+	let cnt_lon = (bin_count / ((bbox.max_lon - bbox.min_lon) as usize)) / 2;
+
+	let mut grid = ::data::Grid { bbox: bbox, bins: vec![::data::Bin{nodes: Vec::new()};cnt_lat * cnt_lon], bin_count_lat: cnt_lat, bin_count_lon: cnt_lon };
+
+	for (id, node) in &routing_data.osm_nodes {
+		let (lat_bin, lon_bin) = grid.calc_bin_index(&node.position);
+
+		let index = grid.calc_bin_position(lat_bin, lon_bin);
+
+		if let Some(bin) = grid.bins.get_mut(index) {
+			bin.nodes.push(*id);
+		} else {
+			println!("error inserting node, {} is out of bounds of bin array {}", index, bin_count);
+		}
+	}
+
+	grid
 }
+
+fn calculate_bounding_box(routing_data: &::data::RoutingData) -> ::data::BoundingBox {
+	let mut bbox = ::data::BoundingBox { max_lat: f64::NEG_INFINITY, max_lon: f64::NEG_INFINITY, min_lat: f64::INFINITY, min_lon: f64::INFINITY };
+
+	for (_, node) in &routing_data.osm_nodes {
+		if node.position.lat > bbox.max_lat {
+			bbox.max_lat = node.position.lat;
+		}
+		if node.position.lon > bbox.max_lon {
+			bbox.max_lon = node.position.lon;
+		}
+		if node.position.lat < bbox.min_lat {
+			bbox.min_lat = node.position.lat;
+		}
+		if node.position.lon < bbox.min_lon {
+			bbox.min_lon = node.position.lon;
+		}
+	}
+	bbox
+}
+
 
 fn init_filter_lists() -> WayDefaults {
 	let mut defaults = WayDefaults { default: WayConstraints { speed: 0.0, access: ::data::FLAG_CAR | ::data::FLAG_WALK | ::data::FLAG_BIKE }, lookup: HashMap::new() };

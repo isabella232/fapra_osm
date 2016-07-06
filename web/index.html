@@ -43,12 +43,41 @@
 <script>
 	var mymap = L.map('osm_map').setView([48.7836043, 9.1821771], 8);
 	var route;
+	var source;
+	var source_marker;
+	var target;
+	var target_marker;
+
+	var toggle = true;
 
 	L.tileLayer('http://{s}.tile.osm.org/{z}/{x}/{y}.png', {
 		maxZoom: 18,
 		attribution: 'Map data &copy; <a href="http://openstreetmap.org">OpenStreetMap</a> contributors, ' +
 		'<a href="http://creativecommons.org/licenses/by-sa/2.0/">CC-BY-SA</a>'
 	}).addTo(mymap);
+
+	function onMapClick(e) {
+		if (toggle) {
+			if (source_marker != null) {
+				mymap.removeLayer(source_marker);
+			}
+			source = e.latlng;
+			$('#source').val(source.lat + "," + source.lng);
+			source_marker = L.marker(source);
+			source_marker.addTo(mymap);
+		} else {
+			if (target_marker != null) {
+				mymap.removeLayer(target_marker);
+			}
+			target = e.latlng;
+			$('#target').val(target.lat + "," + target.lng);
+			target_marker = L.marker(target);
+			target_marker.addTo(mymap);
+		}
+		toggle = !toggle;
+	}
+
+	mymap.on('click', onMapClick);
 
 	$("#routing_form").submit(function (event) {
 

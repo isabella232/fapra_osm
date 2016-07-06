@@ -59,7 +59,7 @@ impl PartialEq for HeapEntry {
 }
 
 
-pub fn start(data: ::data::RoutingData) {
+pub fn start(data: ::data::State) {
 	let data_wrapped = Arc::new(data);
 	let data_wrapped_2 = data_wrapped.clone();
 	let data_wrapped_3 = data_wrapped.clone();
@@ -76,25 +76,40 @@ pub fn start(data: ::data::RoutingData) {
 	Iron::new(mount).http("127.0.0.1:8080").unwrap();
 }
 
-fn get_hello(req: &mut Request, data: &::data::RoutingData) -> IronResult<Response> {
+fn get_hello(req: &mut Request, data: &::data::State) -> IronResult<Response> {
 	println!("Running get_hello handler, URL path: {:?}", req.url.path);
-	Ok(Response::with((status::Ok, format!("HI! nodes: {}, edges: {}", data.internal_nodes.len(), data.internal_edges.len()))))
+	Ok(Response::with((status::Ok, format!("HI! nodes: {}, edges: {}", data.routing_data.internal_nodes.len(), data.routing_data.internal_edges.len()))))
 }
 
-fn get_graph(req: &mut Request, data: &::data::RoutingData) -> IronResult<Response> {
+fn get_graph(req: &mut Request, data: &::data::State) -> IronResult<Response> {
 	println!("Running get_graph handler, URL path: {:?}", req.url.path);
-	Ok(Response::with((status::Ok, format!("nodes: {}, edges: {}", data.internal_nodes.len(), data.internal_edges.len()))))
+	Ok(Response::with((status::Ok, format!("nodes: {}, edges: {}", data.routing_data.internal_nodes.len(), data.routing_data.internal_edges.len()))))
 }
 
-fn get_route(req: &mut Request, data: &::data::RoutingData) -> IronResult<Response> {
+fn parse_position(raw: &str) -> Option<::data::Position> {
+	let mut split = raw.split(",");
+
+	if let (Some(lat_str), Some(lon_str)) = (split.next(), split.next()) {
+		if let (Ok(lat), Ok(lon)) = (lat_str.parse::<f64>(), lon_str.parse::<f64>()) {
+			return Some(::data::Position { lat: lat, lon: lon });
+		}
+	}
+
+	None
+}
+
+fn get_route(req: &mut Request, data: &::data::State) -> IronResult<Response> {
 	if let Ok(ref query_map) = req.get_ref::<UrlEncodedQuery> () {
-		let source_raw = query_map.get("source").and_then(|list| list.first()).and_then(|string| Some(string.as_str())).unwrap_or("1133751511");
-		let target_raw = query_map.get("target").and_then(|list| list.first()).and_then(|string| Some(string.as_str())).unwrap_or("27281797");
+		let source_raw = query_map.get("source").and_then(|list| list.first()).and_then(|string| Some(string.as_str())).unwrap_or("49.51807644873301,10.689697265625");
+		let target_raw = query_map.get("target").and_then(|list| list.first()).and_then(|string| Some(string.as_str())).unwrap_or("48.30877444352327,10.12939453125");
 		let metric_raw = query_map.get("metric").and_then(|list| list.first()).and_then(|string| Some(string.as_str())).unwrap_or("time");
 		let vehicle_raw = query_map.get("vehicle").and_then(|list| list.first()).and_then(|string| Some(string.as_str())).unwrap_or("car");
 
-		let source = itry!(source_raw.parse::<i64>());
-		let target = itry!(target_raw.parse::<i64>());
+		let source_pos = parse_position(source_raw).unwrap_or(::data::Position { lat: 49.51807644873301, lon: 10.689697265625 });
+		let target_pos = parse_position(target_raw).unwrap_or(::data::Position { lat: 8.30877444352327, lon: 10.12939453125 });
+
+		let source = data.grid.find_closest_node(&source_pos, &data.routing_data);
+		let target = data.grid.find_closest_node(&target_pos, &data.routing_data);
 
 		let vehice = match vehicle_raw {
 			"car" => ::data::FLAG_CAR,
@@ -111,7 +126,7 @@ fn get_route(req: &mut Request, data: &::data::RoutingData) -> IronResult<Respon
 
 		println!("doing routing from {} to {} for vehicle {} with metric {}", source, target, vehice, metric_raw);
 		let start = PreciseTime::now();
-		let result = run_dijkstra(&data, source, target, vehice, metric);
+		let result = run_dijkstra(&data.routing_data, source, target, vehice, metric);
 		let end = PreciseTime::now();
 		//println!("route: {:?}", result);
 
@@ -210,7 +225,7 @@ fn build_route(source: usize, target: usize, predecessor: &Vec<usize>, predecess
 		}
 
 		let osm_id = data.internal_nodes[node];
-		let pos = data.osm_nodes.get(&osm_id).unwrap().position;
+		let ref pos = data.osm_nodes.get(&osm_id).unwrap().position;
 
 		let mut speed = data.internal_edges[edge].speed;
 
@@ -233,7 +248,7 @@ fn build_route(source: usize, target: usize, predecessor: &Vec<usize>, predecess
 	return Some(result);
 }
 
-fn edge_cost_distance(edge: &::data::RoutingEdge, vspeed: &f64) -> f64 {
+fn edge_cost_distance(edge: &::data::RoutingEdge, _: &f64) -> f64 {
 	return edge.length;
 }
 
