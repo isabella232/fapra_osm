@@ -36,8 +36,7 @@ struct WayConstraints {
 }
 
 struct WayDefaults {
-	lookup: HashMap<&'static str, WayConstraints>,
-	default: WayConstraints
+	lookup: HashMap<&'static str, WayConstraints>
 }
 
 enum OneWay {
@@ -324,7 +323,7 @@ fn calculate_bounding_box(routing_data: &::data::RoutingData) -> ::data::Boundin
 
 
 fn init_filter_lists() -> WayDefaults {
-	let mut defaults = WayDefaults { default: WayConstraints { speed: 1.0, access: ::data::FLAG_CAR | ::data::FLAG_WALK | ::data::FLAG_BIKE }, lookup: HashMap::new(), ignore: HashSet::new() };
+	let mut defaults = WayDefaults { lookup: HashMap::new() };
 	// @formatter:off
     defaults.lookup.insert("primary", 			WayConstraints { speed: 130.0,  access:  ::data::FLAG_CAR });
     defaults.lookup.insert("trunk", 			WayConstraints { speed: 120.0,  access:  ::data::FLAG_CAR });
