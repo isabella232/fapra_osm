@@ -324,35 +324,36 @@ fn calculate_bounding_box(routing_data: &::data::RoutingData) -> ::data::Boundin
 
 
 fn init_filter_lists() -> WayDefaults {
-	let mut defaults = WayDefaults { default: WayConstraints { speed: 0.0, access: ::data::FLAG_CAR | ::data::FLAG_WALK | ::data::FLAG_BIKE }, lookup: HashMap::new() };
+	let mut defaults = WayDefaults { default: WayConstraints { speed: 1.0, access: ::data::FLAG_CAR | ::data::FLAG_WALK | ::data::FLAG_BIKE }, lookup: HashMap::new(), ignore: HashSet::new() };
 	// @formatter:off
     defaults.lookup.insert("primary", 			WayConstraints { speed: 130.0,  access:  ::data::FLAG_CAR });
     defaults.lookup.insert("trunk", 			WayConstraints { speed: 120.0,  access:  ::data::FLAG_CAR });
     defaults.lookup.insert("motorway", 			WayConstraints { speed: 100.0,  access:  ::data::FLAG_CAR });
     defaults.lookup.insert("secondary", 		WayConstraints { speed: 100.0,  access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("tertiary", 			WayConstraints { speed: 80.0,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("unclassified", 		WayConstraints { speed: 50.0,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("residential", 		WayConstraints { speed: 30.0,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("service", 			WayConstraints { speed: 1.00,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("motorway_link", 	WayConstraints { speed: 80.0,	access:  ::data::FLAG_CAR });
-    defaults.lookup.insert("trunk_link", 		WayConstraints { speed: 80.0,	access:  ::data::FLAG_CAR });
-    defaults.lookup.insert("primary_link", 		WayConstraints { speed: 80.0,	access:  ::data::FLAG_CAR });
-    defaults.lookup.insert("secondary_link", 	WayConstraints { speed: 80.0,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("tertiary_link", 	WayConstraints { speed: 8.00, 	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("living_street", 	WayConstraints { speed: 5.0,  	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("pedestrian", 		WayConstraints { speed: 5.0,  	access:  ::data::FLAG_WALK });
-    defaults.lookup.insert("track", 			WayConstraints { speed: 10.0,  	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("bus_guide_way", 	WayConstraints { speed: 5.0,  	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("tertiary", 			WayConstraints { speed:  80.0,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("unclassified", 		WayConstraints { speed:  50.0,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("residential", 		WayConstraints { speed:  30.0,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("service", 			WayConstraints { speed:   5.0,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("motorway_link", 	WayConstraints { speed:  80.0,	access:  ::data::FLAG_CAR });
+    defaults.lookup.insert("trunk_link", 		WayConstraints { speed:  80.0,	access:  ::data::FLAG_CAR });
+    defaults.lookup.insert("primary_link", 		WayConstraints { speed:  80.0,	access:  ::data::FLAG_CAR });
+    defaults.lookup.insert("secondary_link", 	WayConstraints { speed:  80.0,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("tertiary_link", 	WayConstraints { speed:  8.00,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("living_street", 	WayConstraints { speed:   5.0,  access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("pedestrian", 		WayConstraints { speed:   5.0,  access:  ::data::FLAG_WALK });
+    defaults.lookup.insert("track", 			WayConstraints { speed:  10.0,  access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("bus_guide_way", 	WayConstraints { speed:   5.0,  access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
     defaults.lookup.insert("raceway", 			WayConstraints { speed: 300.0,  access:  ::data::FLAG_CAR });
-    defaults.lookup.insert("road", 				WayConstraints { speed: 1.00, 	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("footway", 			WayConstraints { speed: 5.0,  	access:  ::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("bridleway",			WayConstraints { speed: 5.0,  	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("steps", 			WayConstraints { speed: 5.0,  	access:  ::data::FLAG_WALK });
-    defaults.lookup.insert("path", 				WayConstraints { speed: 5.0,  	access:  ::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("cycleway", 			WayConstraints { speed: 1.05, 	access:  ::data::FLAG_BIKE });
-    defaults.lookup.insert("bus_stop", 			WayConstraints { speed: 5.0,  	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("platform", 			WayConstraints { speed: 5.0, 	access:  ::data::FLAG_WALK });
+    defaults.lookup.insert("road", 				WayConstraints { speed:   5.0, 	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("footway", 			WayConstraints { speed:   5.0,  access:  ::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("bridleway",			WayConstraints { speed:   5.0,  access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("steps", 			WayConstraints { speed:   5.0,  access:  ::data::FLAG_WALK });
+    defaults.lookup.insert("path", 				WayConstraints { speed:   5.0,  access:  ::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("cycleway", 			WayConstraints { speed:   5.0, 	access:  ::data::FLAG_BIKE });
+    defaults.lookup.insert("bus_stop", 			WayConstraints { speed:   5.0,  access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("platform", 			WayConstraints { speed:   5.0, 	access:  ::data::FLAG_WALK });
     // @formatter:on
+
 	return defaults;
 }
 
@@ -370,10 +371,9 @@ fn filter_way(way: &::osmpbfreader::Way, defaults: &WayDefaults) -> Option<WayCo
 
 			check_speed(&mut constraints, &way);
 
-
 			return Some(constraints);
 		} else {
-			return Some(defaults.default.clone());
+			return None;
 		}
 	}
 	return None;
@@ -428,11 +428,16 @@ fn check_speed(data: &mut WayConstraints, way: &::osmpbfreader::Way) {
 		let mut elements = full_string.split_whitespace();
 		if let Some(speed_string) = elements.next() {
 			if let Ok(speed) = speed_string.parse::<u32> () {
-				data.speed = speed as f64;
-				if let Some(unit_string) = elements.next() {
-					if unit_string.starts_with("mph") {
-						data.speed = 1.6 * data.speed;
+				let fspeed = speed as f64;
+				if fspeed > 0.0 {
+					data.speed = fspeed;
+					if let Some(unit_string) = elements.next() {
+						if unit_string.starts_with("mph") {
+							data.speed = 1.6 * data.speed;
+						}
 					}
+				} else {
+					println!("speed is 0.0 for {:?}", way);
 				}
 			}
 		}

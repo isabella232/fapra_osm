@@ -239,7 +239,7 @@ fn build_route(source: usize, target: usize, predecessor: &Vec<usize>, predecess
 
 	result.path.reverse();
 
-	println!("build path");
+	println!("build path, dist: {}, time: {}", result.distance, result.time);
 
 	return Some(result);
 }
