@@ -1,7 +1,6 @@
 extern crate osmpbfreader;
 extern crate time;
-#[macro_use]
-extern crate iron;
+#[macro_use] extern crate iron;
 extern crate staticfile;
 extern crate mount;
 extern crate rustc_serialize;
@@ -23,22 +22,25 @@ use bincode::rustc_serialize::{encode_into, decode_from};
 mod parser;
 mod server;
 mod data;
+mod tsm;
 
 const STATE_FILE_NAME: &'static str = "state.bin.gz";
 
 fn main() {
-	let data = match fs::metadata(STATE_FILE_NAME) {
-		Ok(metadata) => {
-			if metadata.is_file() {
-				read_from_disk()
-			} else {
-				perform_parse()
-			}
-		},
-		Err(_) => perform_parse(),
-	};
+	//	let data = match fs::metadata(STATE_FILE_NAME) {
+	//		Ok(metadata) => {
+	//			if metadata.is_file() {
+	//				read_from_disk()
+	//			} else {
+	//				perform_parse()
+	//			}
+	//		},
+	//		Err(_) => perform_parse(),
+	//	};
 
-	server::start(data);
+	//server::start(data);
+
+	tsm::startRDS();
 }
 
 fn perform_parse() -> data::State {
