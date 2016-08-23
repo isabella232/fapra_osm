@@ -40,25 +40,35 @@ pub fn readRDSTags() {
 
 	let mut pbf = OsmPbfReader::new(pbf_file);
 
+	let mut cnt_way = 0;
+	let mut cnt_node = 0;
+
 	for obj in pbf.iter() {
 		match obj {
 			OsmObj::Node(node) => {
-				printTMCTags(node.tags, "node", node.id);
+				printTMCTags(node.tags, "node", node.id, &mut cnt_node);
 			}
 			OsmObj::Relation(rel) => {
 				//printTMCTags(rel.tags, "rel", rel.id);
 			}
 			OsmObj::Way(way) => {
-				printTMCTags(way.tags, "way", way.id);
+				printTMCTags(way.tags, "way", way.id, &mut cnt_way);
 			}
 		}
 	}
+
+	println!("cnt: {} {} {}", cnt_node, cnt_way, cnt_way + cnt_node);
 }
 
-fn printTMCTags(tags: Tags, typ: &str, id: i64) {
+fn printTMCTags(tags: Tags, typ: &str, id: i64, cnt: &mut u64) {
+	let mut hasTMC = false;
 	for (tag, val) in tags {
 		if tag == "tmc" || tag == "TMC" {
+			hasTMC = true;
 			println!("{}->{} in {} {}", tag, val, typ, id);
 		}
+	}
+	if hasTMC {
+		*cnt = *cnt + 1;
 	}
 }

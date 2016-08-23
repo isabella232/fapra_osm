@@ -45,6 +45,23 @@ pub struct OsmNode {
 	pub internal_id: usize
 }
 
+pub struct TSMMapping {
+	pub tsm_loc_to_node: HashMap<i64, HashSet<usize>>,
+	// tsm_loc -> set<internal_node_id>
+	pub tsm_loc_to_edge: HashMap<i64, HashSet<usize>>,
+	// tsm_loc -> set<internal_edge_id>
+}
+
+pub struct TSMState {
+	pub current_node_events: HashMap<usize, TSMEvent>,
+	pub current_edge_events: HashMap<usize, TSMEvent>,
+}
+
+pub struct TSMEvent {
+	pub desc: string,
+	pub slowdown: f64
+}
+
 #[derive(Debug, RustcEncodable, RustcDecodable)]
 pub struct RoutingData {
 	// relevant nodes and their position
