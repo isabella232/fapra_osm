@@ -46,7 +46,7 @@ pub fn readRDSTags() {
 				printTMCTags(node.tags, "node", node.id);
 			}
 			OsmObj::Relation(rel) => {
-				printTMCTags(rel.tags, "rel", rel.id);
+				//printTMCTags(rel.tags, "rel", rel.id);
 			}
 			OsmObj::Way(way) => {
 				printTMCTags(way.tags, "way", way.id);
@@ -57,7 +57,7 @@ pub fn readRDSTags() {
 
 fn printTMCTags(tags: Tags, typ: &str, id: i64) {
 	for (tag, val) in tags {
-		if tag.contains("tmc") || tag.contains("TMC") {
+		if tag == "tmc" || tag == "TMC" {
 			println!("{}->{} in {} {}", tag, val, typ, id);
 		}
 	}
