@@ -53,13 +53,6 @@ pub struct TMCTag {
 	pub next: u32
 }
 
-// build once during parsing
-pub struct TMCMapping {
-	pub tmc_loc_to_edge: HashMap<u32, HashSet<usize>>,
-	// tmc_loc -> set<internal_edge_id>
-}
-
-
 // updated during runtime by tmc thread
 pub struct TMCState {
 	pub current_edge_events: HashMap<usize, TMCEvent>,
@@ -80,6 +73,10 @@ pub struct RoutingData {
 	pub internal_edges: Vec<RoutingEdge>,
 	// [n_id] -> e_id
 	pub internal_offset: Vec<usize>,
+	// tmc_loc -> set<internal_edge_id>
+	pub tmc_mapping: HashMap<u32, HashSet<usize>>,
+	// tmc_loc -> tmc_loc
+	pub tmc_next: HashMap<(u32, bool), u32>,
 }
 
 #[derive(Debug, RustcEncodable, RustcDecodable)]

@@ -27,20 +27,20 @@ mod tmc;
 const STATE_FILE_NAME: &'static str = "state.bin.gz";
 
 fn main() {
-	//	let data = match fs::metadata(STATE_FILE_NAME) {
-	//		Ok(metadata) => {
-	//			if metadata.is_file() {
-	//				read_from_disk()
-	//			} else {
-	//				perform_parse()
-	//			}
-	//		},
-	//		Err(_) => perform_parse(),
-	//	};
+	let data = match fs::metadata(STATE_FILE_NAME) {
+		Ok(metadata) => {
+			if metadata.is_file() {
+				read_from_disk()
+			} else {
+				perform_parse()
+			}
+		},
+		Err(_) => perform_parse(),
+	};
 
-	//server::start(data);
+	server::start(data);
 
-	tmc::startRDS();
+	//tmc::startRDS();
 }
 
 fn perform_parse() -> data::State {

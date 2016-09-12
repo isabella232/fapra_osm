@@ -15,7 +15,8 @@ struct ParsedEdge {
 	id_to: i64,
 	length: f64,
 	constraints: u8,
-	speed: f64
+	speed: f64,
+	tmc_id: Vec<u32>
 }
 
 struct ParseData {
@@ -27,13 +28,18 @@ struct ParseData {
 	nodes: HashMap<i64, ::data::Position>,
 	// edges
 	edges: Vec<ParsedEdge>,
-	// tmc state (way -> set<tmc_info>)
-	tmc_state: HashMap<i64, HashSet<TMCInfo>>
+	// tmc next id
+	tmc_next: HashMap<(u32, bool), u32>
 }
 
 #[derive(Debug, Hash, Eq, PartialEq)]
 struct TMCInfo {
 	id: u32,
+	next: Option<TMCNext>
+}
+
+#[derive(Debug, Hash, Eq, PartialEq)]
+struct TMCNext {
 	direction: bool,
 	next: u32
 }
@@ -41,7 +47,8 @@ struct TMCInfo {
 #[derive(Debug, Clone)]
 struct WayConstraints {
 	access: u8,
-	speed: f64
+	speed: f64,
+	tmc_id: Vec<u32>,
 }
 
 struct WayDefaults {
@@ -54,11 +61,10 @@ enum OneWay {
 	REVERSE
 }
 
-
 pub fn read_file(filename: &OsString) -> ::data::State {
 	println!("will read file: {:?}", &filename);
 
-	let mut parse_result = ParseData { nodes_used: HashSet::new(), filtered_ways: HashMap::new(), nodes: HashMap::new(), edges: Vec::new(), tmc_state: HashMap::new() };
+	let mut parse_result = ParseData { nodes_used: HashSet::new(), filtered_ways: HashMap::new(), nodes: HashMap::new(), edges: Vec::new(), tmc_next: HashMap::new() };
 
 	let start_p1 = PreciseTime::now();
 	first_parse(&filename, &mut parse_result);
@@ -68,6 +74,7 @@ pub fn read_file(filename: &OsString) -> ::data::State {
 	println!("P1 | nodes_used: {}", parse_result.nodes_used.len());
 	println!("P1 | edges: {}", parse_result.edges.len());
 	println!("P1 | nodes: {}", parse_result.nodes.len());
+	println!("P1 | tmc: {}", parse_result.tmc_next.len());
 	println!("P1 | duration: {}", start_p1.to(end_p1));
 
 	let start_p2 = PreciseTime::now();
@@ -125,12 +132,12 @@ fn test_routing_data_gen() {
 }
 
 pub fn build_dummy_data() -> ::data::State {
-	let edge_vec = vec![ParsedEdge{id_from: 5000, id_to: 5001, length: 1.0, constraints: ::data::FLAG_CAR, speed: 13.89},
-                        ParsedEdge{id_from: 5000, id_to: 5002, length: 10.0, constraints: ::data::FLAG_CAR, speed: 13.89},
-                        ParsedEdge{id_from: 5002, id_to: 5001, length: 100.0, constraints: ::data::FLAG_CAR, speed: 13.89},
-                        ParsedEdge{id_from: 5002, id_to: 5003, length: 1000.0, constraints: ::data::FLAG_CAR, speed: 13.89},
-                        ParsedEdge{id_from: 5003, id_to: 5000, length: 10000.0, constraints: ::data::FLAG_CAR, speed: 13.89},
-                        ParsedEdge{id_from: 5003, id_to: 5004, length: 100000.0, constraints: ::data::FLAG_CAR, speed: 13.89},
+	let edge_vec = vec![ParsedEdge{id_from: 5000, id_to: 5001, length: 1.0, constraints: ::data::FLAG_CAR, speed: 13.89, tmc_id: Vec::new()},
+                        ParsedEdge{id_from: 5000, id_to: 5002, length: 10.0, constraints: ::data::FLAG_CAR, speed: 13.89, tmc_id: Vec::new()},
+                        ParsedEdge{id_from: 5002, id_to: 5001, length: 100.0, constraints: ::data::FLAG_CAR, speed: 13.89, tmc_id: Vec::new()},
+                        ParsedEdge{id_from: 5002, id_to: 5003, length: 1000.0, constraints: ::data::FLAG_CAR, speed: 13.89, tmc_id: Vec::new()},
+                        ParsedEdge{id_from: 5003, id_to: 5000, length: 10000.0, constraints: ::data::FLAG_CAR, speed: 13.89, tmc_id: Vec::new()},
+                        ParsedEdge{id_from: 5003, id_to: 5004, length: 100000.0, constraints: ::data::FLAG_CAR, speed: 13.89, tmc_id: Vec::new()},
 ];
 
 
@@ -142,7 +149,7 @@ pub fn build_dummy_data() -> ::data::State {
 	nodes_map.insert(5003, ::data::Position { lat: 0.0, lon: 0.0 });
 	nodes_map.insert(5004, ::data::Position { lat: 0.0, lon: 0.0 });
 
-	let parse_result = ParseData { nodes: nodes_map, edges: edge_vec, filtered_ways: HashMap::new(), nodes_used: HashSet::new(), tmc_state: HashMap::new() };
+	let parse_result = ParseData { nodes: nodes_map, edges: edge_vec, filtered_ways: HashMap::new(), nodes_used: HashSet::new(), tmc_next: HashMap::new() };
 
 	let routing_data = build_routing_data(parse_result);
 	let grid = build_grid(&routing_data);
@@ -160,13 +167,20 @@ fn first_parse(filename: &OsString, parse_result: &mut ParseData) {
 	for obj in pbf.iter() {
 		match obj {
 			OsmObj::Way(way) => {
-				if let Some(constraints) = filter_way(&way, &filters) {
+				let mut res = filter_way(&way, &filters);
+				if res.is_some() {
+					let mut constraints = res.unwrap();
 					for node in &way.nodes {
 						parse_result.nodes_used.insert(*node);
 					}
 
-					if let Some(tmc_info) = handle_tmc(&way) {
-						parse_result.tmc_state.insert(way.id, tmc_info);
+					if let Some(tmc_info_set) = handle_tmc(&way) {
+						for tmc_info in tmc_info_set {
+							if let Some(tmc_info_next) = tmc_info.next {
+								parse_result.tmc_next.insert((tmc_info.id, tmc_info_next.direction), tmc_info_next.next);
+							}
+							constraints.tmc_id.push(tmc_info.id);
+						}
 					}
 
 					parse_result.filtered_ways.insert(way.id, constraints);
@@ -206,8 +220,8 @@ fn third_parse(filename: &OsString, parse_result: &mut ParseData) {
 						if let (Some(from), Some(to)) = (node_pair.first(), node_pair.last()) {
 							if let (Some(from_node), Some(to_node)) = (parse_result.nodes.get(from), parse_result.nodes.get(to)) {
 								let edge_length = from_node.distance(&to_node);
-								let edge = ParsedEdge { id_from: *from, id_to: *to, length: edge_length, constraints: constraints.access, speed: constraints.speed };
-								let edge_reverse = ParsedEdge { id_from: *to, id_to: *from, length: edge_length, constraints: constraints.access, speed: constraints.speed };
+								let edge = ParsedEdge { id_from: *from, id_to: *to, length: edge_length, constraints: constraints.access, speed: constraints.speed, tmc_id: constraints.tmc_id.clone() };
+								let edge_reverse = ParsedEdge { id_from: *to, id_to: *from, length: edge_length, constraints: constraints.access, speed: constraints.speed, tmc_id: constraints.tmc_id.clone() };
 
 								match one_way {
 									OneWay::NO => {
@@ -228,7 +242,10 @@ fn third_parse(filename: &OsString, parse_result: &mut ParseData) {
 }
 
 fn build_routing_data(mut parse_result: ParseData) -> ::data::RoutingData {
-	let mut routing_data = ::data::RoutingData { osm_nodes: HashMap::new(), internal_nodes: Vec::new(), internal_edges: Vec::new(), internal_offset: vec![usize::max_value(); parse_result.nodes.len()] };
+	let mut routing_data = ::data::RoutingData { osm_nodes: HashMap::new(), internal_nodes: Vec::new(), internal_edges: Vec::new(), internal_offset: vec![usize::max_value(); parse_result.nodes.len()], tmc_mapping: HashMap::new(), tmc_next: HashMap::new() };
+
+	let mut temp_tmc_store = HashMap::new();
+
 
 	parse_result.edges.sort_by(|a, b| b.id_from.cmp(&a.id_from));
 
@@ -264,6 +281,7 @@ fn build_routing_data(mut parse_result: ParseData) -> ::data::RoutingData {
 				let internal_target = routing_data.osm_nodes.get(&edge.id_to).unwrap().internal_id;
 
 				routing_data.internal_edges.push(::data::RoutingEdge { target: internal_target, length: edge.length, constraints: edge.constraints, speed: edge.speed });
+				temp_tmc_store.insert(routing_data.internal_edges.len() - 1, edge.tmc_id);
 			} else {
 				break;
 			}
@@ -277,6 +295,18 @@ fn build_routing_data(mut parse_result: ParseData) -> ::data::RoutingData {
 			*offset = current_offset;
 		} else {
 			current_offset = *offset;
+		}
+	}
+
+	// move tmc_next
+	routing_data.tmc_next = parse_result.tmc_next;
+
+	// create tmc_mapping
+
+	for (edge_id, tmc_ids) in temp_tmc_store.drain() {
+		for tmc_id in &tmc_ids {
+			let edge_set = routing_data.tmc_mapping.entry(*tmc_id).or_insert(HashSet::new());
+			edge_set.insert(edge_id);
 		}
 	}
 
@@ -298,7 +328,7 @@ fn build_grid(routing_data: &::data::RoutingData) -> ::data::Grid {
 	let cnt_lat = (bin_count / ((bbox.max_lat - bbox.min_lat) as usize)) / 2;
 	let cnt_lon = (bin_count / ((bbox.max_lon - bbox.min_lon) as usize)) / 2;
 
-	let mut grid = ::data::Grid { bbox: bbox, bins: vec![::data::Bin{nodes: Vec::new()};cnt_lat * cnt_lon], bin_count_lat: cnt_lat, bin_count_lon: cnt_lon };
+	let mut grid = ::data::Grid { bbox: bbox, bins: vec![::data::Bin{nodes: Vec::new()}; cnt_lat * cnt_lon], bin_count_lat: cnt_lat, bin_count_lon: cnt_lon };
 
 	for (id, node) in &routing_data.osm_nodes {
 		let (lat_bin, lon_bin) = grid.calc_bin_index(&node.position);
@@ -339,32 +369,32 @@ fn calculate_bounding_box(routing_data: &::data::RoutingData) -> ::data::Boundin
 fn init_filter_lists() -> WayDefaults {
 	let mut defaults = WayDefaults { lookup: HashMap::new() };
 	// @formatter:off
-    defaults.lookup.insert("primary", 			WayConstraints { speed: 130.0, access:  ::data::FLAG_CAR });
-    defaults.lookup.insert("trunk", 			WayConstraints { speed: 120.0, access:  ::data::FLAG_CAR });
-    defaults.lookup.insert("motorway", 			WayConstraints { speed: 100.0, access:  ::data::FLAG_CAR });
-    defaults.lookup.insert("secondary", 		WayConstraints { speed: 100.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("tertiary", 			WayConstraints { speed:  80.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("unclassified", 		WayConstraints { speed:  50.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("residential", 		WayConstraints { speed:  30.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("service", 			WayConstraints { speed:   5.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("motorway_link", 	WayConstraints { speed:  80.0, access:  ::data::FLAG_CAR });
-    defaults.lookup.insert("trunk_link", 		WayConstraints { speed:  80.0, access:  ::data::FLAG_CAR });
-    defaults.lookup.insert("primary_link", 		WayConstraints { speed:  80.0, access:  ::data::FLAG_CAR });
-    defaults.lookup.insert("secondary_link", 	WayConstraints { speed:  80.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("tertiary_link", 	WayConstraints { speed:  8.00, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("living_street", 	WayConstraints { speed:   5.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("pedestrian", 		WayConstraints { speed:   5.0, access:  ::data::FLAG_WALK });
-    defaults.lookup.insert("track", 			WayConstraints { speed:  10.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("bus_guide_way", 	WayConstraints { speed:   5.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("raceway", 			WayConstraints { speed: 300.0, access:  ::data::FLAG_CAR });
-    defaults.lookup.insert("road", 				WayConstraints { speed:   5.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("footway", 			WayConstraints { speed:   5.0, access:  ::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("bridleway",			WayConstraints { speed:   5.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("steps", 			WayConstraints { speed:   5.0, access:  ::data::FLAG_WALK });
-    defaults.lookup.insert("path", 				WayConstraints { speed:   5.0, access:  ::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("cycleway", 			WayConstraints { speed:   5.0, access:  ::data::FLAG_BIKE });
-    defaults.lookup.insert("bus_stop", 			WayConstraints { speed:   5.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("platform", 			WayConstraints { speed:   5.0, access:  ::data::FLAG_WALK });
+    defaults.lookup.insert("primary", 			WayConstraints { speed: 130.0, tmc_id: Vec::new(), access:  ::data::FLAG_CAR });
+    defaults.lookup.insert("trunk", 			WayConstraints { speed: 120.0, tmc_id: Vec::new(), access:  ::data::FLAG_CAR });
+    defaults.lookup.insert("motorway", 			WayConstraints { speed: 100.0, tmc_id: Vec::new(), access:  ::data::FLAG_CAR });
+    defaults.lookup.insert("secondary", 		WayConstraints { speed: 100.0, tmc_id: Vec::new(), access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("tertiary", 			WayConstraints { speed:  80.0, tmc_id: Vec::new(), access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("unclassified", 		WayConstraints { speed:  50.0, tmc_id: Vec::new(), access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("residential", 		WayConstraints { speed:  30.0, tmc_id: Vec::new(), access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("service", 			WayConstraints { speed:   5.0, tmc_id: Vec::new(), access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("motorway_link", 	WayConstraints { speed:  80.0, tmc_id: Vec::new(), access:  ::data::FLAG_CAR });
+    defaults.lookup.insert("trunk_link", 		WayConstraints { speed:  80.0, tmc_id: Vec::new(), access:  ::data::FLAG_CAR });
+    defaults.lookup.insert("primary_link", 		WayConstraints { speed:  80.0, tmc_id: Vec::new(), access:  ::data::FLAG_CAR });
+    defaults.lookup.insert("secondary_link", 	WayConstraints { speed:  80.0, tmc_id: Vec::new(), access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("tertiary_link", 	WayConstraints { speed:  8.00, tmc_id: Vec::new(), access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("living_street", 	WayConstraints { speed:   5.0, tmc_id: Vec::new(), access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("pedestrian", 		WayConstraints { speed:   5.0, tmc_id: Vec::new(), access:  ::data::FLAG_WALK });
+    defaults.lookup.insert("track", 			WayConstraints { speed:  10.0, tmc_id: Vec::new(), access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("bus_guide_way", 	WayConstraints { speed:   5.0, tmc_id: Vec::new(), access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("raceway", 			WayConstraints { speed: 300.0, tmc_id: Vec::new(), access:  ::data::FLAG_CAR });
+    defaults.lookup.insert("road", 				WayConstraints { speed:   5.0, tmc_id: Vec::new(), access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("footway", 			WayConstraints { speed:   5.0, tmc_id: Vec::new(), access:  ::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("bridleway",			WayConstraints { speed:   5.0, tmc_id: Vec::new(), access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("steps", 			WayConstraints { speed:   5.0, tmc_id: Vec::new(), access:  ::data::FLAG_WALK });
+    defaults.lookup.insert("path", 				WayConstraints { speed:   5.0, tmc_id: Vec::new(), access:  ::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("cycleway", 			WayConstraints { speed:   5.0, tmc_id: Vec::new(), access:  ::data::FLAG_BIKE });
+    defaults.lookup.insert("bus_stop", 			WayConstraints { speed:   5.0, tmc_id: Vec::new(), access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("platform", 			WayConstraints { speed:   5.0, tmc_id: Vec::new(), access:  ::data::FLAG_WALK });
     // @formatter:on
 
 	return defaults;
@@ -401,6 +431,8 @@ fn handle_tmc(way: &::osmpbfreader::Way) -> Option<HashSet<TMCInfo>> {
 }
 
 fn parseTMCInfo(value: &String) -> HashSet<TMCInfo> {
+	//println!("parsing >>{}<<", value);
+
 	let mut result = HashSet::new();
 
 	for tag in value.split(";") {
@@ -408,32 +440,38 @@ fn parseTMCInfo(value: &String) -> HashSet<TMCInfo> {
 
 		if stripped.contains('+') {
 			let numbers: Vec<&str> = stripped.split('+').collect();
-			let id_from = numbers[0].parse::<u32>().unwrap();
-			let id_to = numbers[1].parse::<u32>().unwrap();
+			let id_from = numbers[0].parse::<u32>();
+			let id_to = numbers[1].parse::<u32>();
 
-			result.insert(TMCInfo { id: id_from, direction: true, next: id_to });
+			if let (Ok(id_from_parsed), Ok(id_to_parsed)) = (id_from, id_to) {
+				result.insert(TMCInfo { id: id_from_parsed, next: Some(TMCNext { direction: true, next: id_to_parsed }) });
+			}
 		} else if stripped.contains('-') {
 			let numbers: Vec<&str> = stripped.split('-').collect();
-			let id_from = numbers[0].parse::<u32>().unwrap();
-			let id_to = numbers[1].parse::<u32>().unwrap();
+			let id_from = numbers[0].parse::<u32>();
+			let id_to = numbers[1].parse::<u32>();
 
-			result.insert(TMCInfo { id: id_from, direction: false, next: id_to });
+			if let (Ok(id_from_parsed), Ok(id_to_parsed)) = (id_from, id_to) {
+				result.insert(TMCInfo { id: id_from_parsed, next: Some(TMCNext { direction: false, next: id_to_parsed }) });
+			}
 		} else if stripped.contains('/') {
 			let numbers: Vec<&str> = stripped.split('/').collect();
-			let id_from = numbers[0].parse::<u32>().unwrap();
-			let id_to = numbers[1].parse::<u32>().unwrap();
+			let id_from = numbers[0].parse::<u32>();
+			let id_to = numbers[1].parse::<u32>();
 
-			result.insert(TMCInfo { id: id_from, direction: true, next: id_to });
-			result.insert(TMCInfo { id: id_to, direction: false, next: id_from });
+			if let (Ok(id_from_parsed), Ok(id_to_parsed)) = (id_from, id_to) {
+				result.insert(TMCInfo { id: id_from_parsed, next: Some(TMCNext { direction: true, next: id_to_parsed }) });
+				result.insert(TMCInfo { id: id_to_parsed, next: Some(TMCNext { direction: false, next: id_from_parsed }) });
+			}
 		} else {
-			let id_from = stripped.parse::<u32>().unwrap();
-
-			result.insert(TMCInfo { id: id_from, direction: true, next: 0 });
-			result.insert(TMCInfo { id: id_from, direction: false, next: 0 });
+			let id_from = stripped.parse::<u32>();
+			if let Ok(id_from_parsed) = id_from {
+				result.insert(TMCInfo { id: id_from_parsed, next: None });
+				result.insert(TMCInfo { id: id_from_parsed, next: None });
+			}
 		}
 	}
 
-	println!("parsed >>{}<< into {} TMCInfo", value, result.len());
 
 	return result;
 }
