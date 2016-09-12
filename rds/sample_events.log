@@ -9794,6 +9794,4 @@ GF:: GF evt=704 loc=11617 ext=2 CI=1 dir=0
 GS:: GS CI=1 GSI=1 F1=1694 F2=30375
 GF:: GF evt=803 loc=10869 ext=3 CI=2 dir=1
 GS:: GS CI=2 GSI=1 F1=349 F2=11437
-GS:: GS CI=2 GSI=0 F1=48 F2=0 
-
-Process finished with exit code 130 (interrupted by signal 2: SIGINT)
+GS:: GS CI=2 GSI=0 F1=48 F2=0

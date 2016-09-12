@@ -35,7 +35,7 @@ pub fn readRDSQueryInput() {
 }
 
 pub fn readRDSTags() {
-	let filename = OsString::from("/home/jan/Downloads/baden-wuerttemberg-latest.osm.pbf".to_string());
+	let filename = OsString::from("/home/zsdn/baden-wuerttemberg-latest.osm.pbf".to_string());
 	let pbf_file = File::open(&Path::new(&filename)).unwrap();
 
 	let mut pbf = OsmPbfReader::new(pbf_file);

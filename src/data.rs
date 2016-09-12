@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::cmp;
 use std::f64;
 
@@ -45,20 +46,27 @@ pub struct OsmNode {
 	pub internal_id: usize
 }
 
-pub struct TSMMapping {
-	pub tsm_loc_to_node: HashMap<i64, HashSet<usize>>,
-	// tsm_loc -> set<internal_node_id>
-	pub tsm_loc_to_edge: HashMap<i64, HashSet<usize>>,
-	// tsm_loc -> set<internal_edge_id>
+#[derive(Debug, RustcEncodable, RustcDecodable, Hash, Eq, PartialEq, Clone)]
+pub struct TMCTag {
+	pub id: u32,
+	pub dir: bool,
+	pub next: u32
 }
 
-pub struct TSMState {
-	pub current_node_events: HashMap<usize, TSMEvent>,
-	pub current_edge_events: HashMap<usize, TSMEvent>,
+// build once during parsing
+pub struct TMCMapping {
+	pub tmc_loc_to_edge: HashMap<u32, HashSet<usize>>,
+	// tmc_loc -> set<internal_edge_id>
 }
 
-pub struct TSMEvent {
-	pub desc: string,
+
+// updated during runtime by tmc thread
+pub struct TMCState {
+	pub current_edge_events: HashMap<usize, TMCEvent>,
+}
+
+pub struct TMCEvent {
+	pub desc: String,
 	pub slowdown: f64
 }
 

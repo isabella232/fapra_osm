@@ -22,7 +22,7 @@ use bincode::rustc_serialize::{encode_into, decode_from};
 mod parser;
 mod server;
 mod data;
-mod tsm;
+mod tmc;
 
 const STATE_FILE_NAME: &'static str = "state.bin.gz";
 
@@ -40,7 +40,7 @@ fn main() {
 
 	//server::start(data);
 
-	tsm::startRDS();
+	tmc::startRDS();
 }
 
 fn perform_parse() -> data::State {

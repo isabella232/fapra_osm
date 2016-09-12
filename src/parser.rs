@@ -26,7 +26,16 @@ struct ParseData {
 	// relevant nodes and their position
 	nodes: HashMap<i64, ::data::Position>,
 	// edges
-	edges: Vec<ParsedEdge>
+	edges: Vec<ParsedEdge>,
+	// tmc state (way -> set<tmc_info>)
+	tmc_state: HashMap<i64, HashSet<TMCInfo>>
+}
+
+#[derive(Debug, Hash, Eq, PartialEq)]
+struct TMCInfo {
+	id: u32,
+	direction: bool,
+	next: u32
 }
 
 #[derive(Debug, Clone)]
@@ -49,7 +58,7 @@ enum OneWay {
 pub fn read_file(filename: &OsString) -> ::data::State {
 	println!("will read file: {:?}", &filename);
 
-	let mut parse_result = ParseData { nodes_used: HashSet::new(), filtered_ways: HashMap::new(), nodes: HashMap::new(), edges: Vec::new() };
+	let mut parse_result = ParseData { nodes_used: HashSet::new(), filtered_ways: HashMap::new(), nodes: HashMap::new(), edges: Vec::new(), tmc_state: HashMap::new() };
 
 	let start_p1 = PreciseTime::now();
 	first_parse(&filename, &mut parse_result);
@@ -133,7 +142,7 @@ pub fn build_dummy_data() -> ::data::State {
 	nodes_map.insert(5003, ::data::Position { lat: 0.0, lon: 0.0 });
 	nodes_map.insert(5004, ::data::Position { lat: 0.0, lon: 0.0 });
 
-	let parse_result = ParseData { nodes: nodes_map, edges: edge_vec, filtered_ways: HashMap::new(), nodes_used: HashSet::new() };
+	let parse_result = ParseData { nodes: nodes_map, edges: edge_vec, filtered_ways: HashMap::new(), nodes_used: HashSet::new(), tmc_state: HashMap::new() };
 
 	let routing_data = build_routing_data(parse_result);
 	let grid = build_grid(&routing_data);
@@ -152,9 +161,14 @@ fn first_parse(filename: &OsString, parse_result: &mut ParseData) {
 		match obj {
 			OsmObj::Way(way) => {
 				if let Some(constraints) = filter_way(&way, &filters) {
-					for node in way.nodes {
-						parse_result.nodes_used.insert(node);
+					for node in &way.nodes {
+						parse_result.nodes_used.insert(*node);
 					}
+
+					if let Some(tmc_info) = handle_tmc(&way) {
+						parse_result.tmc_state.insert(way.id, tmc_info);
+					}
+
 					parse_result.filtered_ways.insert(way.id, constraints);
 				}
 			}
@@ -325,32 +339,32 @@ fn calculate_bounding_box(routing_data: &::data::RoutingData) -> ::data::Boundin
 fn init_filter_lists() -> WayDefaults {
 	let mut defaults = WayDefaults { lookup: HashMap::new() };
 	// @formatter:off
-    defaults.lookup.insert("primary", 			WayConstraints { speed: 130.0,  access:  ::data::FLAG_CAR });
-    defaults.lookup.insert("trunk", 			WayConstraints { speed: 120.0,  access:  ::data::FLAG_CAR });
-    defaults.lookup.insert("motorway", 			WayConstraints { speed: 100.0,  access:  ::data::FLAG_CAR });
-    defaults.lookup.insert("secondary", 		WayConstraints { speed: 100.0,  access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("tertiary", 			WayConstraints { speed:  80.0,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("unclassified", 		WayConstraints { speed:  50.0,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("residential", 		WayConstraints { speed:  30.0,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("service", 			WayConstraints { speed:   5.0,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("motorway_link", 	WayConstraints { speed:  80.0,	access:  ::data::FLAG_CAR });
-    defaults.lookup.insert("trunk_link", 		WayConstraints { speed:  80.0,	access:  ::data::FLAG_CAR });
-    defaults.lookup.insert("primary_link", 		WayConstraints { speed:  80.0,	access:  ::data::FLAG_CAR });
-    defaults.lookup.insert("secondary_link", 	WayConstraints { speed:  80.0,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("tertiary_link", 	WayConstraints { speed:  8.00,	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("living_street", 	WayConstraints { speed:   5.0,  access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("pedestrian", 		WayConstraints { speed:   5.0,  access:  ::data::FLAG_WALK });
-    defaults.lookup.insert("track", 			WayConstraints { speed:  10.0,  access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("bus_guide_way", 	WayConstraints { speed:   5.0,  access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("raceway", 			WayConstraints { speed: 300.0,  access:  ::data::FLAG_CAR });
-    defaults.lookup.insert("road", 				WayConstraints { speed:   5.0, 	access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("footway", 			WayConstraints { speed:   5.0,  access:  ::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("bridleway",			WayConstraints { speed:   5.0,  access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("steps", 			WayConstraints { speed:   5.0,  access:  ::data::FLAG_WALK });
-    defaults.lookup.insert("path", 				WayConstraints { speed:   5.0,  access:  ::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("cycleway", 			WayConstraints { speed:   5.0, 	access:  ::data::FLAG_BIKE });
-    defaults.lookup.insert("bus_stop", 			WayConstraints { speed:   5.0,  access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
-    defaults.lookup.insert("platform", 			WayConstraints { speed:   5.0, 	access:  ::data::FLAG_WALK });
+    defaults.lookup.insert("primary", 			WayConstraints { speed: 130.0, access:  ::data::FLAG_CAR });
+    defaults.lookup.insert("trunk", 			WayConstraints { speed: 120.0, access:  ::data::FLAG_CAR });
+    defaults.lookup.insert("motorway", 			WayConstraints { speed: 100.0, access:  ::data::FLAG_CAR });
+    defaults.lookup.insert("secondary", 		WayConstraints { speed: 100.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("tertiary", 			WayConstraints { speed:  80.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("unclassified", 		WayConstraints { speed:  50.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("residential", 		WayConstraints { speed:  30.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("service", 			WayConstraints { speed:   5.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("motorway_link", 	WayConstraints { speed:  80.0, access:  ::data::FLAG_CAR });
+    defaults.lookup.insert("trunk_link", 		WayConstraints { speed:  80.0, access:  ::data::FLAG_CAR });
+    defaults.lookup.insert("primary_link", 		WayConstraints { speed:  80.0, access:  ::data::FLAG_CAR });
+    defaults.lookup.insert("secondary_link", 	WayConstraints { speed:  80.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("tertiary_link", 	WayConstraints { speed:  8.00, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("living_street", 	WayConstraints { speed:   5.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("pedestrian", 		WayConstraints { speed:   5.0, access:  ::data::FLAG_WALK });
+    defaults.lookup.insert("track", 			WayConstraints { speed:  10.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("bus_guide_way", 	WayConstraints { speed:   5.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("raceway", 			WayConstraints { speed: 300.0, access:  ::data::FLAG_CAR });
+    defaults.lookup.insert("road", 				WayConstraints { speed:   5.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("footway", 			WayConstraints { speed:   5.0, access:  ::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("bridleway",			WayConstraints { speed:   5.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("steps", 			WayConstraints { speed:   5.0, access:  ::data::FLAG_WALK });
+    defaults.lookup.insert("path", 				WayConstraints { speed:   5.0, access:  ::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("cycleway", 			WayConstraints { speed:   5.0, access:  ::data::FLAG_BIKE });
+    defaults.lookup.insert("bus_stop", 			WayConstraints { speed:   5.0, access:  ::data::FLAG_CAR|::data::FLAG_BIKE|::data::FLAG_WALK });
+    defaults.lookup.insert("platform", 			WayConstraints { speed:   5.0, access:  ::data::FLAG_WALK });
     // @formatter:on
 
 	return defaults;
@@ -376,6 +390,52 @@ fn filter_way(way: &::osmpbfreader::Way, defaults: &WayDefaults) -> Option<WayCo
 		}
 	}
 	return None;
+}
+
+fn handle_tmc(way: &::osmpbfreader::Way) -> Option<HashSet<TMCInfo>> {
+	if let Some(value) = way.tags.get("tmc").or(way.tags.get("TMC")) {
+		return Some(parseTMCInfo(value));
+	} else {
+		return None;
+	}
+}
+
+fn parseTMCInfo(value: &String) -> HashSet<TMCInfo> {
+	let mut result = HashSet::new();
+
+	for tag in value.split(";") {
+		let stripped = tag.replace("DE:", "");
+
+		if stripped.contains('+') {
+			let numbers: Vec<&str> = stripped.split('+').collect();
+			let id_from = numbers[0].parse::<u32>().unwrap();
+			let id_to = numbers[1].parse::<u32>().unwrap();
+
+			result.insert(TMCInfo { id: id_from, direction: true, next: id_to });
+		} else if stripped.contains('-') {
+			let numbers: Vec<&str> = stripped.split('-').collect();
+			let id_from = numbers[0].parse::<u32>().unwrap();
+			let id_to = numbers[1].parse::<u32>().unwrap();
+
+			result.insert(TMCInfo { id: id_from, direction: false, next: id_to });
+		} else if stripped.contains('/') {
+			let numbers: Vec<&str> = stripped.split('/').collect();
+			let id_from = numbers[0].parse::<u32>().unwrap();
+			let id_to = numbers[1].parse::<u32>().unwrap();
+
+			result.insert(TMCInfo { id: id_from, direction: true, next: id_to });
+			result.insert(TMCInfo { id: id_to, direction: false, next: id_from });
+		} else {
+			let id_from = stripped.parse::<u32>().unwrap();
+
+			result.insert(TMCInfo { id: id_from, direction: true, next: 0 });
+			result.insert(TMCInfo { id: id_from, direction: false, next: 0 });
+		}
+	}
+
+	println!("parsed >>{}<< into {} TMCInfo", value, result.len());
+
+	return result;
 }
 
 fn check_oneway(way: &::osmpbfreader::Way) -> OneWay {
@@ -426,7 +486,7 @@ fn check_speed(data: &mut WayConstraints, way: &::osmpbfreader::Way) {
 	if let Some(full_string) = way.tags.get("maxspeed") {
 		let mut elements = full_string.split_whitespace();
 		if let Some(speed_string) = elements.next() {
-			if let Ok(speed) = speed_string.parse::<u32> () {
+			if let Ok(speed) = speed_string.parse::<u32>() {
 				let fspeed = speed as f64;
 				if fspeed > 0.0 {
 					data.speed = fspeed;
