@@ -70,51 +70,52 @@ pub fn read_file(filename: &OsString) -> ::data::State {
 	first_parse(&filename, &mut parse_result);
 	let end_p1 = PreciseTime::now();
 
-	println!("P1 | ways:  {}", parse_result.filtered_ways.len());
-	println!("P1 | nodes_used: {}", parse_result.nodes_used.len());
-	println!("P1 | edges: {}", parse_result.edges.len());
-	println!("P1 | nodes: {}", parse_result.nodes.len());
-	println!("P1 | tmc: {}", parse_result.tmc_next.len());
-	println!("P1 | duration: {}", start_p1.to(end_p1));
+	println!("P1 | ways:         {}", parse_result.filtered_ways.len());
+	println!("P1 | nodes_used:   {}", parse_result.nodes_used.len());
+	println!("P1 | edges:        {}", parse_result.edges.len());
+	println!("P1 | nodes:        {}", parse_result.nodes.len());
+	println!("P1 | tmc_next_cnt: {}", parse_result.tmc_next.len());
+	println!("P1 | tmc_tagged:   {}", parse_result.filtered_ways.values().filter(|w| !w.tmc_id.is_empty()).count());
+	println!("P1 | duration:     {}", start_p1.to(end_p1));
 
 	let start_p2 = PreciseTime::now();
 	second_parse(&filename, &mut parse_result);
 	let end_p2 = PreciseTime::now();
 
-	println!("P2 | ways:  {}", parse_result.filtered_ways.len());
+	println!("P2 | ways:       {}", parse_result.filtered_ways.len());
 	println!("P2 | nodes_used: {}", parse_result.nodes_used.len());
-	println!("P2 | edges: {}", parse_result.edges.len());
-	println!("P2 | nodes: {}", parse_result.nodes.len());
-	println!("P2 | duration: {}", start_p2.to(end_p2));
+	println!("P2 | edges:      {}", parse_result.edges.len());
+	println!("P2 | nodes:      {}", parse_result.nodes.len());
+	println!("P2 | duration:   {}", start_p2.to(end_p2));
 
 	let start_p3 = PreciseTime::now();
 	third_parse(&filename, &mut parse_result);
 	let end_p3 = PreciseTime::now();
 
-	println!("P3 | ways:  {}", parse_result.filtered_ways.len());
+	println!("P3 | ways:       {}", parse_result.filtered_ways.len());
 	println!("P3 | nodes_used: {}", parse_result.nodes_used.len());
-	println!("P3 | edges: {}", parse_result.edges.len());
-	println!("P3 | nodes: {}", parse_result.nodes.len());
-	println!("P3 | duration: {}", start_p3.to(end_p3));
+	println!("P3 | edges:      {}", parse_result.edges.len());
+	println!("P3 | nodes:      {}", parse_result.nodes.len());
+	println!("P3 | duration:   {}", start_p3.to(end_p3));
 
 	let start_b = PreciseTime::now();
 	let routing_data = build_routing_data(parse_result);
 	let end_b = PreciseTime::now();
 
-	println!("B  | edges:  {}", routing_data.internal_edges.len());
-	println!("B  | nodes:  {}", routing_data.internal_nodes.len());
-	println!("B  | offset:  {}", routing_data.internal_offset.len());
-	println!("B  | osm_nodes:  {}", routing_data.osm_nodes.len());
-	println!("B  | duration: {}", start_b.to(end_b));
+	println!("B  | edges:     {}", routing_data.internal_edges.len());
+	println!("B  | nodes:     {}", routing_data.internal_nodes.len());
+	println!("B  | offset:    {}", routing_data.internal_offset.len());
+	println!("B  | osm_nodes: {}", routing_data.osm_nodes.len());
+	println!("B  | duration:  {}", start_b.to(end_b));
 
 	let start_g = PreciseTime::now();
 	let grid = build_grid(&routing_data);
 	let end_g = PreciseTime::now();
 
-	println!("G  | bounds: {:?}", grid.bbox);
+	println!("G  | bounds:      {:?}", grid.bbox);
 	println!("G  | bin_cnt_lat: {}", grid.bin_count_lat);
 	println!("G  | bin_cnt_lon: {}", grid.bin_count_lon);
-	println!("G  | duration: {}", start_g.to(end_g));
+	println!("G  | duration:    {}", start_g.to(end_g));
 
 	return ::data::State { routing_data: routing_data, grid: grid };
 }
@@ -167,7 +168,7 @@ fn first_parse(filename: &OsString, parse_result: &mut ParseData) {
 	for obj in pbf.iter() {
 		match obj {
 			OsmObj::Way(way) => {
-				let mut res = filter_way(&way, &filters);
+				let res = filter_way(&way, &filters);
 				if res.is_some() {
 					let mut constraints = res.unwrap();
 					for node in &way.nodes {
@@ -175,9 +176,11 @@ fn first_parse(filename: &OsString, parse_result: &mut ParseData) {
 					}
 
 					if let Some(tmc_info_set) = handle_tmc(&way) {
+						//println!("{:?}", tmc_info_set);
 						for tmc_info in tmc_info_set {
 							if let Some(tmc_info_next) = tmc_info.next {
 								parse_result.tmc_next.insert((tmc_info.id, tmc_info_next.direction), tmc_info_next.next);
+								parse_result.tmc_next.insert((tmc_info_next.next, !tmc_info_next.direction), tmc_info.id);
 							}
 							constraints.tmc_id.push(tmc_info.id);
 						}
@@ -301,8 +304,8 @@ fn build_routing_data(mut parse_result: ParseData) -> ::data::RoutingData {
 	// move tmc_next
 	routing_data.tmc_next = parse_result.tmc_next;
 
-	// create tmc_mapping
 
+	// create tmc_mapping
 	for (edge_id, tmc_ids) in temp_tmc_store.drain() {
 		for tmc_id in &tmc_ids {
 			let edge_set = routing_data.tmc_mapping.entry(*tmc_id).or_insert(HashSet::new());
@@ -424,13 +427,13 @@ fn filter_way(way: &::osmpbfreader::Way, defaults: &WayDefaults) -> Option<WayCo
 
 fn handle_tmc(way: &::osmpbfreader::Way) -> Option<HashSet<TMCInfo>> {
 	if let Some(value) = way.tags.get("tmc").or(way.tags.get("TMC")) {
-		return Some(parseTMCInfo(value));
+		return Some(parse_tmc_info(value));
 	} else {
 		return None;
 	}
 }
 
-fn parseTMCInfo(value: &String) -> HashSet<TMCInfo> {
+fn parse_tmc_info(value: &String) -> HashSet<TMCInfo> {
 	//println!("parsing >>{}<<", value);
 
 	let mut result = HashSet::new();
@@ -445,6 +448,8 @@ fn parseTMCInfo(value: &String) -> HashSet<TMCInfo> {
 
 			if let (Ok(id_from_parsed), Ok(id_to_parsed)) = (id_from, id_to) {
 				result.insert(TMCInfo { id: id_from_parsed, next: Some(TMCNext { direction: true, next: id_to_parsed }) });
+			} else {
+				println!{"warn failed to parse TMC tag: {}", value}
 			}
 		} else if stripped.contains('-') {
 			let numbers: Vec<&str> = stripped.split('-').collect();
@@ -453,6 +458,8 @@ fn parseTMCInfo(value: &String) -> HashSet<TMCInfo> {
 
 			if let (Ok(id_from_parsed), Ok(id_to_parsed)) = (id_from, id_to) {
 				result.insert(TMCInfo { id: id_from_parsed, next: Some(TMCNext { direction: false, next: id_to_parsed }) });
+			} else {
+				println!{"warn failed to parse TMC tag: {}", value}
 			}
 		} else if stripped.contains('/') {
 			let numbers: Vec<&str> = stripped.split('/').collect();
@@ -462,12 +469,16 @@ fn parseTMCInfo(value: &String) -> HashSet<TMCInfo> {
 			if let (Ok(id_from_parsed), Ok(id_to_parsed)) = (id_from, id_to) {
 				result.insert(TMCInfo { id: id_from_parsed, next: Some(TMCNext { direction: true, next: id_to_parsed }) });
 				result.insert(TMCInfo { id: id_to_parsed, next: Some(TMCNext { direction: false, next: id_from_parsed }) });
+			} else {
+				println!{"warn failed to parse TMC tag: {}", value}
 			}
 		} else {
 			let id_from = stripped.parse::<u32>();
 			if let Ok(id_from_parsed) = id_from {
 				result.insert(TMCInfo { id: id_from_parsed, next: None });
 				result.insert(TMCInfo { id: id_from_parsed, next: None });
+			} else {
+				println!{"warn failed to parse TMC tag: {}", value}
 			}
 		}
 	}

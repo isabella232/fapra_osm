@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 use std::collections::BinaryHeap;
+use std::collections::HashMap;
 use std::cmp::Ordering;
 use std::f64;
 use iron::prelude::*;
@@ -11,6 +12,9 @@ use ordered_float::OrderedFloat;
 use urlencoded::UrlEncodedQuery;
 use rustc_serialize::json;
 use time::PreciseTime;
+use std::sync::RwLock;
+use std::sync::RwLockReadGuard;
+use std::thread;
 
 #[derive(Debug, Clone)]
 struct HeapEntry {
@@ -49,8 +53,7 @@ impl PartialOrd for HeapEntry {
 	}
 }
 
-impl Eq for HeapEntry {
-}
+impl Eq for HeapEntry {}
 
 impl PartialEq for HeapEntry {
 	fn eq(&self, other: &HeapEntry) -> bool {
@@ -60,23 +63,39 @@ impl PartialEq for HeapEntry {
 
 
 pub fn start(data: ::data::State) {
+	let tmc_state = RwLock::new(::data::TMCState { current_edge_events: HashMap::new() });
+
 	let data_wrapped = Arc::new(data);
 	let data_wrapped_2 = data_wrapped.clone();
 	let data_wrapped_3 = data_wrapped.clone();
+	let data_wrapped_4 = data_wrapped.clone();
+	let data_wrapped_5 = data_wrapped.clone();
+
+	let tmc_state_wrapped = Arc::new(tmc_state);
+	let tmc_state_wrapped_2 = tmc_state_wrapped.clone();
+	let tmc_state_wrapped_3 = tmc_state_wrapped.clone();
 
 	let mut mount = Mount::new();
 
 	mount.mount("/", Static::new(Path::new("web/")));
 	mount.mount("/api/hello", move |r: &mut Request| get_hello(r, &data_wrapped));
 	mount.mount("/api/graph", move |r: &mut Request| get_graph(r, &data_wrapped_2));
-	mount.mount("/api/route", move |r: &mut Request| get_route(r, &data_wrapped_3));
+	mount.mount("/api/route", move |r: &mut Request| get_route(r, &data_wrapped_3, &tmc_state_wrapped));
+	mount.mount("/api/tmc",   move |r: &mut Request| get_tmc(r, &data_wrapped_4, &tmc_state_wrapped_2));
 
 	println!("server running on http://localhost:8080/");
+
+	start_tmc_listener_thread(tmc_state_wrapped_3, data_wrapped_4);
 
 	Iron::new(mount).http("127.0.0.1:8080").unwrap();
 }
 
 fn get_hello(req: &mut Request, data: &::data::State) -> IronResult<Response> {
+	println!("Running get_hello handler, URL path: {:?}", req.url.path);
+	Ok(Response::with((status::Ok, format!("HI! nodes: {}, edges: {}", data.routing_data.internal_nodes.len(), data.routing_data.internal_edges.len()))))
+}
+
+fn get_tmc(req: &mut Request, data: &::data::State) -> IronResult<Response> {
 	println!("Running get_hello handler, URL path: {:?}", req.url.path);
 	Ok(Response::with((status::Ok, format!("HI! nodes: {}, edges: {}", data.routing_data.internal_nodes.len(), data.routing_data.internal_edges.len()))))
 }
@@ -98,8 +117,8 @@ fn parse_position(raw: &str) -> Option<::data::Position> {
 	None
 }
 
-fn get_route(req: &mut Request, data: &::data::State) -> IronResult<Response> {
-	if let Ok(ref query_map) = req.get_ref::<UrlEncodedQuery> () {
+fn get_route(req: &mut Request, data: &::data::State, tmc_state: &RwLock<::data::TMCState>) -> IronResult<Response> {
+	if let Ok(ref query_map) = req.get_ref::<UrlEncodedQuery>() {
 		let source_raw = query_map.get("source").and_then(|list| list.first()).and_then(|string| Some(string.as_str())).unwrap_or("49.51807644873301,10.689697265625");
 		let target_raw = query_map.get("target").and_then(|list| list.first()).and_then(|string| Some(string.as_str())).unwrap_or("48.30877444352327,10.12939453125");
 		let metric_raw = query_map.get("metric").and_then(|list| list.first()).and_then(|string| Some(string.as_str())).unwrap_or("time");
@@ -126,7 +145,7 @@ fn get_route(req: &mut Request, data: &::data::State) -> IronResult<Response> {
 
 		println!("doing routing from {} to {} for vehicle {} with metric {}", source, target, vehice, metric_raw);
 		let start = PreciseTime::now();
-		let result = run_dijkstra(&data.routing_data, source, target, vehice, metric);
+		let result = run_dijkstra(&data.routing_data, source, target, vehice, metric, tmc_state);
 		let end = PreciseTime::now();
 		//println!("route: {:?}", result);
 
@@ -138,7 +157,7 @@ fn get_route(req: &mut Request, data: &::data::State) -> IronResult<Response> {
 	}
 }
 
-fn run_dijkstra<F>(data: &::data::RoutingData, source_osm: i64, target_osm: i64, constraints: u8, cost_func: F) -> Option<Route>
+fn run_dijkstra<F>(data: &::data::RoutingData, source_osm: i64, target_osm: i64, constraints: u8, cost_func: F, tmc_state: &RwLock<::data::TMCState>) -> Option<Route>
 	where F: Fn(&::data::RoutingEdge, &f64) -> f64 {
 	let vspeed = match constraints {
 		::data::FLAG_CAR => 130.0 / 3.6,
@@ -153,6 +172,8 @@ fn run_dijkstra<F>(data: &::data::RoutingData, source_osm: i64, target_osm: i64,
 
 	let source = data.osm_nodes.get(&source_osm).unwrap().internal_id;
 	let target = data.osm_nodes.get(&target_osm).unwrap().internal_id;
+
+	let tmc = tmc_state.read().unwrap();
 
 	let mut heap = BinaryHeap::new();
 
@@ -176,7 +197,8 @@ fn run_dijkstra<F>(data: &::data::RoutingData, source_osm: i64, target_osm: i64,
 			if constraints & edge.constraints == 0 {
 				continue;
 			}
-			let neighbor = HeapEntry { node: edge.target, cost: cost + cost_func(&edge, &vspeed) };
+
+			let neighbor = HeapEntry { node: edge.target, cost: cost + cost_func(&edge, &vspeed) + tmc_slowdown(&i, &tmc) };
 
 			if neighbor.cost < distance[neighbor.node] {
 				distance[edge.target] = neighbor.cost;
@@ -189,6 +211,7 @@ fn run_dijkstra<F>(data: &::data::RoutingData, source_osm: i64, target_osm: i64,
 	println!("no route found");
 	return None;
 }
+
 
 fn offset_lookup(node: &usize, data: &::data::RoutingData) -> (usize, usize) {
 	let start = data.internal_offset[*node];
@@ -256,6 +279,19 @@ fn edge_cost_time(edge: &::data::RoutingEdge, vspeed: &f64) -> f64 {
 	}
 
 	return edge.length / speed;
+}
+
+fn tmc_slowdown(edge: &usize, state: &RwLockReadGuard<::data::TMCState>) -> f64 {
+	if let Some(tmc_event) = state.current_edge_events.get(&edge) {
+		return tmc_event.slowdown;
+	}
+	return 0.0;
+}
+
+fn start_tmc_listener_thread(tmc_arc: Arc<RwLock<::data::TMCState>>, data_arc: Arc<::data::State>) {
+	thread::spawn(move || {
+		::tmc::run_tmc_thread(tmc_arc, data_arc);
+	});
 }
 
 #[test]
