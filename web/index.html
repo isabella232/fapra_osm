@@ -32,12 +32,17 @@
 			<option value="time">Time</option>
 		</select><br/>
 
-		<input type="submit" id="submitButton" name="submitButton" value="Submit">
+		<input type="submit" id="submitButtonRoute" name="submitButton" value="Submit">
+	</form>
+
+	<form id="show_tmc_form" action="api/tmc" method="get">
+		<input type="submit" id="submitButtonTMC" name="submitButton" value="Submit">
 	</form>
 
 	<div id="result_distance"></div>
 	<div id="result_time"></div>
 	<div id="result_duration"></div>
+	<div id="tmc_feedback"></div>
 </div>
 
 <script>
@@ -55,6 +60,7 @@
 
 	var mymap = L.map('osm_map').setView([48.7836043, 9.1821771], 8);
 	var route;
+	var tmc = [];
 	var source;
 	var source_marker;
 	var target;
@@ -126,6 +132,45 @@
 			route = new_route;
 		});
 	});
+
+	$("#show_tmc_form").submit(function (event) {
+
+		event.preventDefault();
+
+		var $form = $(this);
+		var url = $form.attr('action');
+
+		$.getJSON(url, function (result) {
+			//console.log(result);
+
+			if (tmc != null) {
+				tmc.forEach(function (entry) {
+					mymap.removeLayer(entry);
+				});
+				tmc = [];
+			}
+
+			if (result.events == null) {
+				$('#tmc_feedback').html("no tmc events");
+
+			} else {
+				result.events.forEach(function (entry) {
+					console.log(entry);
+					var new_tmc = L.polyline([entry.from, entry.to], {
+						color: "#ff0000"
+					});
+					new_tmc.addTo(mymap);
+					tmc.push(new_tmc);
+				});
+
+				$('#tmc_feedback').html("some events..");
+
+			}
+
+
+		});
+	});
+
 
 </script>
 </body>

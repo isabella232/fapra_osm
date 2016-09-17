@@ -27,6 +27,19 @@ struct RoutingResult {
 	route: Option<Route>
 }
 
+
+#[derive(Debug, Clone, RustcEncodable, RustcDecodable)]
+struct TMCResult {
+	events: Vec<TMCResultEntry>
+}
+
+#[derive(Debug, Clone, RustcEncodable, RustcDecodable)]
+struct TMCResultEntry {
+	event: String,
+	from: [f64; 2],
+	to: [f64; 2]
+}
+
 #[derive(Debug, Clone, RustcEncodable, RustcDecodable)]
 struct Route {
 	distance: f64,
@@ -95,10 +108,24 @@ fn get_hello(req: &mut Request, data: &::data::State) -> IronResult<Response> {
 }
 
 fn get_tmc(req: &mut Request, data: &::data::State, tmc_state: &RwLock<::data::TMCState>) -> IronResult<Response> {
-	println!("Running get_tmc handler, URL path: {:?}", req.url.path);
+	println!("Running get_tmc handler");
 
+	let mut result = TMCResult { events: Vec::new() };
 	let tmc = tmc_state.read().unwrap();
-	Ok(Response::with((status::Ok, format!("tmc_state: {:?}", *tmc))))
+
+	for (edge_id, event) in &tmc.current_edge_events {
+		let ref edge = data.routing_data.internal_edges[*edge_id];
+
+		let osm_id_from = data.routing_data.internal_nodes[edge.source];
+		let osm_id_to = data.routing_data.internal_nodes[edge.target];
+
+		let ref pos_from = data.routing_data.osm_nodes.get(&osm_id_from).unwrap().position;
+		let ref pos_to = data.routing_data.osm_nodes.get(&osm_id_to).unwrap().position;
+
+		result.events.push(TMCResultEntry { event: event.desc.clone(), from: [pos_from.lat, pos_from.lon], to: [pos_to.lat, pos_to.lon] });
+	}
+
+	Ok(Response::with((status::Ok, json::encode(&result).unwrap())))
 }
 
 fn get_graph(req: &mut Request, data: &::data::State) -> IronResult<Response> {

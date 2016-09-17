@@ -281,9 +281,10 @@ fn build_routing_data(mut parse_result: ParseData) -> ::data::RoutingData {
 				break;
 			}
 			if let Some(edge) = parse_result.edges.pop() {
+				let internal_source = routing_data.osm_nodes.get(&edge.id_from).unwrap().internal_id;
 				let internal_target = routing_data.osm_nodes.get(&edge.id_to).unwrap().internal_id;
 
-				routing_data.internal_edges.push(::data::RoutingEdge { target: internal_target, length: edge.length, constraints: edge.constraints, speed: edge.speed });
+				routing_data.internal_edges.push(::data::RoutingEdge { source: internal_source, target: internal_target, length: edge.length, constraints: edge.constraints, speed: edge.speed });
 				temp_tmc_store.insert(routing_data.internal_edges.len() - 1, edge.tmc_id);
 			} else {
 				break;

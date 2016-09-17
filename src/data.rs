@@ -33,6 +33,7 @@ pub const FLAG_WALK: u8 = 0b00000100;
 
 #[derive(Debug, RustcEncodable, RustcDecodable)]
 pub struct RoutingEdge {
+	pub source: usize,
 	pub target: usize,
 	pub length: f64,
 	pub speed: f64,
