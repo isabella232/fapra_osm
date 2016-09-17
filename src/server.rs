@@ -13,7 +13,6 @@ use urlencoded::UrlEncodedQuery;
 use rustc_serialize::json;
 use time::PreciseTime;
 use std::sync::RwLock;
-use std::sync::RwLockReadGuard;
 use std::thread;
 
 #[derive(Debug, Clone)]
@@ -81,11 +80,11 @@ pub fn start(data: ::data::State) {
 	mount.mount("/api/hello", move |r: &mut Request| get_hello(r, &data_wrapped));
 	mount.mount("/api/graph", move |r: &mut Request| get_graph(r, &data_wrapped_2));
 	mount.mount("/api/route", move |r: &mut Request| get_route(r, &data_wrapped_3, &tmc_state_wrapped));
-	mount.mount("/api/tmc",   move |r: &mut Request| get_tmc(r, &data_wrapped_4, &tmc_state_wrapped_2));
+	mount.mount("/api/tmc", move |r: &mut Request| get_tmc(r, &data_wrapped_4, &tmc_state_wrapped_2));
 
 	println!("server running on http://localhost:8080/");
 
-	start_tmc_listener_thread(tmc_state_wrapped_3, data_wrapped_4);
+	start_tmc_listener_thread(tmc_state_wrapped_3, data_wrapped_5);
 
 	Iron::new(mount).http("127.0.0.1:8080").unwrap();
 }
@@ -95,9 +94,11 @@ fn get_hello(req: &mut Request, data: &::data::State) -> IronResult<Response> {
 	Ok(Response::with((status::Ok, format!("HI! nodes: {}, edges: {}", data.routing_data.internal_nodes.len(), data.routing_data.internal_edges.len()))))
 }
 
-fn get_tmc(req: &mut Request, data: &::data::State) -> IronResult<Response> {
-	println!("Running get_hello handler, URL path: {:?}", req.url.path);
-	Ok(Response::with((status::Ok, format!("HI! nodes: {}, edges: {}", data.routing_data.internal_nodes.len(), data.routing_data.internal_edges.len()))))
+fn get_tmc(req: &mut Request, data: &::data::State, tmc_state: &RwLock<::data::TMCState>) -> IronResult<Response> {
+	println!("Running get_tmc handler, URL path: {:?}", req.url.path);
+
+	let tmc = tmc_state.read().unwrap();
+	Ok(Response::with((status::Ok, format!("tmc_state: {:?}", *tmc))))
 }
 
 fn get_graph(req: &mut Request, data: &::data::State) -> IronResult<Response> {
@@ -158,7 +159,7 @@ fn get_route(req: &mut Request, data: &::data::State, tmc_state: &RwLock<::data:
 }
 
 fn run_dijkstra<F>(data: &::data::RoutingData, source_osm: i64, target_osm: i64, constraints: u8, cost_func: F, tmc_state: &RwLock<::data::TMCState>) -> Option<Route>
-	where F: Fn(&::data::RoutingEdge, &f64) -> f64 {
+	where F: Fn(&::data::RoutingEdge, &f64, &usize, &::data::TMCState) -> f64 {
 	let vspeed = match constraints {
 		::data::FLAG_CAR => 130.0 / 3.6,
 		::data::FLAG_BIKE => 15.0 / 3.6,
@@ -198,7 +199,7 @@ fn run_dijkstra<F>(data: &::data::RoutingData, source_osm: i64, target_osm: i64,
 				continue;
 			}
 
-			let neighbor = HeapEntry { node: edge.target, cost: cost + cost_func(&edge, &vspeed) + tmc_slowdown(&i, &tmc) };
+			let neighbor = HeapEntry { node: edge.target, cost: cost + cost_func(&edge, &vspeed, &i, &tmc) };
 
 			if neighbor.cost < distance[neighbor.node] {
 				distance[edge.target] = neighbor.cost;
@@ -267,25 +268,23 @@ fn build_route(source: usize, target: usize, predecessor: &Vec<usize>, predecess
 	return Some(result);
 }
 
-fn edge_cost_distance(edge: &::data::RoutingEdge, _: &f64) -> f64 {
+fn edge_cost_distance(edge: &::data::RoutingEdge, _: &f64, _: &usize, _: &::data::TMCState) -> f64 {
 	return edge.length;
 }
 
-fn edge_cost_time(edge: &::data::RoutingEdge, vspeed: &f64) -> f64 {
+fn edge_cost_time(edge: &::data::RoutingEdge, vspeed: &f64, edge_id: &usize, state: &::data::TMCState) -> f64 {
 	let mut speed = edge.speed;
+
+	let slowdown = match state.current_edge_events.get(&edge_id) {
+		Some(tmc_event) => tmc_event.slowdown,
+		None => 0.0,
+	};
 
 	if *vspeed < speed {
 		speed = *vspeed;
 	}
 
-	return edge.length / speed;
-}
-
-fn tmc_slowdown(edge: &usize, state: &RwLockReadGuard<::data::TMCState>) -> f64 {
-	if let Some(tmc_event) = state.current_edge_events.get(&edge) {
-		return tmc_event.slowdown;
-	}
-	return 0.0;
+	return edge.length / speed + slowdown;
 }
 
 fn start_tmc_listener_thread(tmc_arc: Arc<RwLock<::data::TMCState>>, data_arc: Arc<::data::State>) {

@@ -31,7 +31,6 @@ pub const FLAG_CAR: u8 = 0b00000001;
 pub const FLAG_BIKE: u8 = 0b00000010;
 pub const FLAG_WALK: u8 = 0b00000100;
 
-
 #[derive(Debug, RustcEncodable, RustcDecodable)]
 pub struct RoutingEdge {
 	pub target: usize,
@@ -54,10 +53,12 @@ pub struct TMCTag {
 }
 
 // updated during runtime by tmc thread
+#[derive(Debug)]
 pub struct TMCState {
 	pub current_edge_events: HashMap<usize, TMCEvent>,
 }
 
+#[derive(Debug)]
 pub struct TMCEvent {
 	pub desc: String,
 	pub slowdown: f64
