@@ -14,6 +14,7 @@ use rustc_serialize::json;
 use time::PreciseTime;
 use std::sync::RwLock;
 use std::thread;
+use std::str::FromStr;
 
 #[derive(Debug, Clone)]
 struct HeapEntry {
@@ -27,7 +28,6 @@ struct RoutingResult {
 	route: Option<Route>
 }
 
-
 #[derive(Debug, Clone, RustcEncodable, RustcDecodable)]
 struct TMCResult {
 	events: Vec<TMCResultEntry>
@@ -36,6 +36,11 @@ struct TMCResult {
 #[derive(Debug, Clone, RustcEncodable, RustcDecodable)]
 struct TMCResultEntry {
 	event: String,
+	edges: Vec<TMCEdge>
+}
+
+#[derive(Debug, Clone, RustcEncodable, RustcDecodable)]
+struct TMCEdge {
 	from: [f64; 2],
 	to: [f64; 2]
 }
@@ -75,7 +80,7 @@ impl PartialEq for HeapEntry {
 
 
 pub fn start(data: ::data::State) {
-	let tmc_state = RwLock::new(::data::TMCState { current_edge_events: HashMap::new() });
+	let tmc_state = RwLock::new(::data::TMCState { current_edge_events: HashMap::new(), current_tmc_events: HashMap::new() });
 
 	let data_wrapped = Arc::new(data);
 	let data_wrapped_2 = data_wrapped.clone();
@@ -113,16 +118,22 @@ fn get_tmc(req: &mut Request, data: &::data::State, tmc_state: &RwLock<::data::T
 	let mut result = TMCResult { events: Vec::new() };
 	let tmc = tmc_state.read().unwrap();
 
-	for (edge_id, event) in &tmc.current_edge_events {
-		let ref edge = data.routing_data.internal_edges[*edge_id];
+	for (tmc_key, tmc_value) in &tmc.current_tmc_events {
+		let mut res = TMCResultEntry { event: tmc_value.desc.clone(), edges: Vec::new() };
 
-		let osm_id_from = data.routing_data.internal_nodes[edge.source];
-		let osm_id_to = data.routing_data.internal_nodes[edge.target];
+		for edge_id in &tmc_value.edges {
+			let ref edge = data.routing_data.internal_edges[*edge_id];
 
-		let ref pos_from = data.routing_data.osm_nodes.get(&osm_id_from).unwrap().position;
-		let ref pos_to = data.routing_data.osm_nodes.get(&osm_id_to).unwrap().position;
+			let osm_id_from = data.routing_data.internal_nodes[edge.source];
+			let osm_id_to = data.routing_data.internal_nodes[edge.target];
 
-		result.events.push(TMCResultEntry { event: event.desc.clone(), from: [pos_from.lat, pos_from.lon], to: [pos_to.lat, pos_to.lon] });
+			let ref pos_from = data.routing_data.osm_nodes.get(&osm_id_from).unwrap().position;
+			let ref pos_to = data.routing_data.osm_nodes.get(&osm_id_to).unwrap().position;
+
+			res.edges.push(TMCEdge { from: [pos_from.lat, pos_from.lon], to: [pos_to.lat, pos_to.lon] });
+		}
+
+		result.events.push(res);
 	}
 
 	Ok(Response::with((status::Ok, json::encode(&result).unwrap())))
@@ -151,12 +162,15 @@ fn get_route(req: &mut Request, data: &::data::State, tmc_state: &RwLock<::data:
 		let target_raw = query_map.get("target").and_then(|list| list.first()).and_then(|string| Some(string.as_str())).unwrap_or("48.30877444352327,10.12939453125");
 		let metric_raw = query_map.get("metric").and_then(|list| list.first()).and_then(|string| Some(string.as_str())).unwrap_or("time");
 		let vehicle_raw = query_map.get("vehicle").and_then(|list| list.first()).and_then(|string| Some(string.as_str())).unwrap_or("car");
+		let use_tmc_raw = query_map.get("tmc").and_then(|list| list.first()).and_then(|string| Some(string.as_str())).unwrap_or("false");
 
 		let source_pos = parse_position(source_raw).unwrap_or(::data::Position { lat: 49.51807644873301, lon: 10.689697265625 });
 		let target_pos = parse_position(target_raw).unwrap_or(::data::Position { lat: 8.30877444352327, lon: 10.12939453125 });
 
 		let source = data.grid.find_closest_node(&source_pos, &data.routing_data);
 		let target = data.grid.find_closest_node(&target_pos, &data.routing_data);
+
+		let use_tmc = bool::from_str(use_tmc_raw).unwrap_or(false);
 
 		let vehice = match vehicle_raw {
 			"car" => ::data::FLAG_CAR,
@@ -165,15 +179,17 @@ fn get_route(req: &mut Request, data: &::data::State, tmc_state: &RwLock<::data:
 			_ => ::data::FLAG_CAR
 		};
 
-		let metric = match metric_raw {
-			"time" => edge_cost_time,
-			"distance" => edge_cost_distance,
+		let metric = match (metric_raw, use_tmc) {
+			("time", true) => edge_cost_tmc,
+			("time", false) => edge_cost_time,
+			("distance", _) => edge_cost_distance,
 			_ => edge_cost_distance
 		};
 
-		println!("doing routing from {} to {} for vehicle {} with metric {}", source, target, vehice, metric_raw);
+		println!("doing routing from {} to {} for vehicle {} with metric {} and tmc {}", source, target, vehicle_raw, metric_raw, use_tmc);
+
 		let start = PreciseTime::now();
-		let result = run_dijkstra(&data.routing_data, source, target, vehice, metric, tmc_state);
+		let result = run_dijkstra(&data.routing_data, source, target, vehice, metric, tmc_state, use_tmc);
 		let end = PreciseTime::now();
 		//println!("route: {:?}", result);
 
@@ -185,7 +201,7 @@ fn get_route(req: &mut Request, data: &::data::State, tmc_state: &RwLock<::data:
 	}
 }
 
-fn run_dijkstra<F>(data: &::data::RoutingData, source_osm: i64, target_osm: i64, constraints: u8, cost_func: F, tmc_state: &RwLock<::data::TMCState>) -> Option<Route>
+fn run_dijkstra<F>(data: &::data::RoutingData, source_osm: i64, target_osm: i64, constraints: u8, cost_func: F, tmc_state: &RwLock<::data::TMCState>, use_tmc: bool) -> Option<Route>
 	where F: Fn(&::data::RoutingEdge, &f64, &usize, &::data::TMCState) -> f64 {
 	let vspeed = match constraints {
 		::data::FLAG_CAR => 130.0 / 3.6,
@@ -226,7 +242,7 @@ fn run_dijkstra<F>(data: &::data::RoutingData, source_osm: i64, target_osm: i64,
 				continue;
 			}
 
-			let neighbor = HeapEntry { node: edge.target, cost: cost + cost_func(&edge, &vspeed, &i, &tmc) };
+			let neighbor = HeapEntry { node: edge.target, cost: cost + cost_func(&edge, &vspeed, &(i + start), &tmc) };
 
 			if neighbor.cost < distance[neighbor.node] {
 				distance[edge.target] = neighbor.cost;
@@ -299,11 +315,13 @@ fn edge_cost_distance(edge: &::data::RoutingEdge, _: &f64, _: &usize, _: &::data
 	return edge.length;
 }
 
-fn edge_cost_time(edge: &::data::RoutingEdge, vspeed: &f64, edge_id: &usize, state: &::data::TMCState) -> f64 {
+fn edge_cost_tmc(edge: &::data::RoutingEdge, vspeed: &f64, edge_id: &usize, state: &::data::TMCState) -> f64 {
 	let mut speed = edge.speed;
 
-	let slowdown = match state.current_edge_events.get(&edge_id) {
-		Some(tmc_event) => tmc_event.slowdown,
+	let slowdown = match state.current_edge_events.get(edge_id) {
+		Some(tmc_event) => {
+			*tmc_event
+		},
 		None => 0.0,
 	};
 
@@ -311,7 +329,17 @@ fn edge_cost_time(edge: &::data::RoutingEdge, vspeed: &f64, edge_id: &usize, sta
 		speed = *vspeed;
 	}
 
-	return edge.length / speed + slowdown;
+	return edge.length / f64::max(1.0, speed - slowdown);
+}
+
+fn edge_cost_time(edge: &::data::RoutingEdge, vspeed: &f64, _: &usize, _: &::data::TMCState) -> f64 {
+	let mut speed = edge.speed;
+
+	if *vspeed < speed {
+		speed = *vspeed;
+	}
+
+	return edge.length / speed;
 }
 
 fn start_tmc_listener_thread(tmc_arc: Arc<RwLock<::data::TMCState>>, data_arc: Arc<::data::State>) {

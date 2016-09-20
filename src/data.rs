@@ -53,16 +53,35 @@ pub struct TMCTag {
 	pub next: u32
 }
 
+#[derive(Debug, RustcEncodable, RustcDecodable, Hash, Eq, PartialEq, Clone)]
+pub struct TMCKey {
+	pub loc: u32,
+	pub dir: bool,
+	pub event: u32,
+}
+
+#[derive(Debug)]
+pub struct TMCRawEvent {
+	pub loc: u32,
+	pub dir: bool,
+	pub event: u32,
+	pub ext: u32
+}
+
 // updated during runtime by tmc thread
 #[derive(Debug)]
 pub struct TMCState {
-	pub current_edge_events: HashMap<usize, TMCEvent>,
+	pub current_edge_events: HashMap<usize, f64>,
+	pub current_tmc_events: HashMap<TMCKey, TMCEvent>
 }
 
 #[derive(Debug)]
 pub struct TMCEvent {
 	pub desc: String,
-	pub slowdown: f64
+	pub slowdown: f64,
+	pub ext: u32,
+	pub timeout: u32,
+	pub edges: HashSet<usize>
 }
 
 #[derive(Debug, RustcEncodable, RustcDecodable)]
