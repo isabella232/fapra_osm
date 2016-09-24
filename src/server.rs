@@ -329,7 +329,7 @@ fn edge_cost_tmc(edge: &::data::RoutingEdge, vspeed: &f64, edge_id: &usize, stat
 		speed = *vspeed;
 	}
 
-	return edge.length / f64::max(1.0, speed - slowdown);
+	return edge.length / f64::max(1.0, speed * slowdown);
 }
 
 fn edge_cost_time(edge: &::data::RoutingEdge, vspeed: &f64, _: &usize, _: &::data::TMCState) -> f64 {
