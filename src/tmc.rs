@@ -4,6 +4,7 @@ use std::sync::RwLock;
 use std::collections::HashSet;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::fs::File;
 
 struct LookupMaps {
 	slowdown: HashMap<u32, f64>,
@@ -19,16 +20,56 @@ pub fn run_tmc_thread(tmc_arc: Arc<RwLock<::data::TMCState>>, data_arc: Arc<::da
 }
 
 fn insert_dummy_events(tmc_arc: Arc<RwLock<::data::TMCState>>, data: Arc<::data::State>, lookup: LookupMaps) {
-	let raw_event = ::data::TMCRawEvent { loc: 11602, dir: true, event: 701, ext: 2 };
-	let raw_event2 = ::data::TMCRawEvent { loc: 11593, dir: true, event: 702, ext: 2 };
-
 	let mut state = tmc_arc.write().unwrap();
 
-	handle_event(raw_event, &mut state, &data, &lookup);
-	handle_event(raw_event2, &mut state, &data, &lookup);
 
-	println!("{}", state.current_tmc_events.len());
-	println!("{}", state.current_edge_events.len());
+	let f = File::open("/home/zsdn/rust_workspace/rust_fapraosm/rds/sample_events.log").unwrap();
+	let f = BufReader::new(f);
+
+	for line in f.lines() {
+		if let Some(event) = parse_tmc_event(line.unwrap()) {
+			handle_event(event, &mut state, &data, &lookup);
+		}
+	}
+
+
+	println!("tmc_events: {}", state.current_tmc_events.len());
+	println!("edge_events: {}", state.current_edge_events.len());
+}
+
+fn parse_tmc_event(line: String) -> Option<::data::TMCRawEvent> {
+	let mut vars = line.split_whitespace();
+
+	let mut raw_event = ::data::TMCRawEvent { loc: 0, dir: true, event: 0, ext: 0 };
+
+	if let Some(tmc_type) = vars.nth(0) {
+		if tmc_type == "GF" || tmc_type == "S" {
+			for pair in vars {
+				let mut split_pair = pair.split("=");
+
+				let key_raw = split_pair.nth(0);
+				let value_raw = split_pair.last();
+
+				if let (Some(key), Some(value)) = (key_raw, value_raw) {
+					if let Ok(value_num) = value.parse::<u32>() {
+						match key {
+							"loc" => raw_event.loc = value_num,
+							"ext" => raw_event.ext = value_num,
+							"dir" => raw_event.dir = value_num == 1,
+							"evt" => raw_event.event = value_num,
+							_ => {},
+						};
+					}
+				}
+			}
+		}
+	}
+
+	if raw_event.loc != 0 && raw_event.event != 0 {
+		return Some(raw_event);
+	} else {
+		return None;
+	}
 }
 
 fn handle_event(raw_event: ::data::TMCRawEvent, state: &mut ::data::TMCState, data: &::data::State, lookup: &LookupMaps) {
@@ -106,12 +147,8 @@ fn run_rdsd_loop(tmc_arc: Arc<RwLock<::data::TMCState>>, data_arc: Arc<::data::S
 
 	for line in buf_reader.lines() {
 		if let Ok(content) = line {
-			if content.starts_with("GS ") {
-				println!("GS:: {}", content);
-			} else if content.starts_with("GF ") {
-				println!("GF:: {}", content);
-			} else if content.starts_with("S ") {
-				println!("S::  {}", content);
+			if let Some(event) = parse_tmc_event(content) {
+				//TODO
 			}
 		}
 	}
@@ -122,10 +159,14 @@ fn run_rdsd_loop(tmc_arc: Arc<RwLock<::data::TMCState>>, data_arc: Arc<::data::S
 fn build_event_slowdown_map(map_desc: &HashMap<u32, &str>) -> HashMap<u32, f64> {
 	let mut r = HashMap::new();
 
+	let mut cnt_unmapped = 0;
+
 	for (event, desc_raw) in map_desc {
 		let desc = desc_raw.to_string().to_lowercase();
 
-		if desc.contains("stationary traffic") {
+		if desc.contains("bridge closed") || desc.contains("tunnel closed") || desc.contains("bridge blocked") || desc.contains("tunnel blocked") {
+			r.insert(*event, 0.99);
+		} else if desc.contains("stationary traffic") {
 			r.insert(*event, 0.95);
 		} else if desc.contains("queuing traffic") {
 			r.insert(*event, 0.80);
@@ -140,10 +181,11 @@ fn build_event_slowdown_map(map_desc: &HashMap<u32, &str>) -> HashMap<u32, f64> 
 		} else if desc.contains("accident") {
 			r.insert(*event, 0.75);
 		} else {
-			println!("no slowdown entry for event code {} with desc: {}", event, desc_raw);
+			//println!("no slowdown entry for event code {} with desc: {}", event, desc_raw);
+			cnt_unmapped += 1;
 		}
 	}
-
+	println!("no slowdown entry for {} of {} event codes ({}%)", cnt_unmapped, map_desc.len(), (cnt_unmapped as f32 / map_desc.len() as f32) * 100.0);
 	return r;
 }
 
