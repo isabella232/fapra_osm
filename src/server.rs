@@ -322,7 +322,7 @@ fn edge_cost_tmc(edge: &::data::RoutingEdge, vspeed: &f64, edge_id: &usize, stat
 		Some(tmc_event) => {
 			*tmc_event
 		},
-		None => 0.0,
+		None => 1.0,
 	};
 
 	if *vspeed < speed {

@@ -12,43 +12,50 @@
 <body>
 <div id="osm_map"></div>
 <div id="sidebar">
-	<form id="routing_form" action="api/route" method="get">
-		<label for="source">Source:</label>
-		<input type="text" id="source" name="source" value="1133751511"/><br/>
-
-		<label for="target">Target:</label>
-		<input type="text" id="target" name="target" value="27281797"/><br/>
-
-		<label for="vehicle">Vehicle:</label>
-		<select id="vehicle" name="vehicle">
-			<option value="car">Car</option>
-			<option value="bike">Bike</option>
-			<option value="walk">Walk</option>
-		</select><br/>
-
-		<label for="metric">Metric:</label>
-		<select id="metric" name="metric">
-			<option value="distance">Distance</option>
-			<option value="time">Time</option>
-		</select><br/>
-
-		<label for="tmc">Use TMC:</label>
-		<input id="tmc" type="checkbox" name="tmc" value="tmc"><br/>
-
-		<input type="submit" id="submitButtonRoute" name="submitButton" value="Submit">
-	</form>
-
-	<form id="show_tmc_form" action="api/tmc" method="get">
-		<input type="submit" id="submitButtonTMC" name="submitButton" value="Show TMC
-">
-	</form>
-
-	<div id="result_distance"></div>
-	<div id="result_time"></div>
-	<div id="result_duration"></div>
-	<div id="tmc_feedback"></div>
+	<div id="sidebar_title"><h1>FaPra OSM</h1></div>
+	<div id="sidebar_form">
+		<form id="routing_form" action="api/route" method="get">
+			<table>
+				<tr>
+					<td><label for="source">Source:</label></td>
+					<td><input type="text" id="source" name="source" value="48.821961238601915,9.524202346801758"/></td>
+				</tr>
+				<tr>
+					<td><label for="target">Target:</label></td>
+					<td><input type="text" id="target" name="target" value="48.704783184209155,9.051666855812073"/></td>
+				</tr>
+				<tr>
+					<td><label for="vehicle">Vehicle:</label></td>
+					<td><select id="vehicle" name="vehicle">
+						<option value="car">Car</option>
+						<option value="bike">Bike</option>
+						<option value="walk">Walk</option>
+					</select></td>
+				</tr>
+				<tr>
+					<td><label for="metric">Metric:</label></td>
+					<td><select id="metric" name="metric">
+						<option value="distance">Distance</option>
+						<option value="time">Time</option>
+					</select></td>
+				</tr>
+				<tr>
+					<td><label for="tmc">Use TMC:</label></td>
+					<td><input id="tmc" type="checkbox" name="tmc" value="tmc"></td>
+				</tr>
+				<tr>
+					<td><input type="submit" id="submitButtonRoute" name="submitButton" value="Submit"></td>
+				</tr>
+			</table>
+		</form>
+	</div>
+	<div id="sidebar_info">
+		<div id="result_distance"></div>
+		<div id="result_time"></div>
+		<div id="result_duration"></div>
+		<div id="tmc_feedback"></div>
+	</div>
 </div>
-
 <script>
 
 	var tmc_icon = L.icon({
@@ -86,7 +93,7 @@
 
 	L.tileLayer('http://{s}.tile.osm.org/{z}/{x}/{y}.png', {
 		maxZoom: 18,
-		attribution: 'Map data &copy; <a href="http://openstreetmap.org">OpenStreetMap</a> contributors, ' +
+		attribution: 'Map data &copy; <a href="http://openstreetmap.org">OpenStreetMap</a> contributors | ' +
 		'<a href="http://creativecommons.org/licenses/by-sa/2.0/">CC-BY-SA</a>'
 	}).addTo(mymap);
 
@@ -141,21 +148,20 @@
 				var new_route = L.polyline(result.route.path);
 				new_route.addTo(mymap);
 
-				$('#result_distance').html("travel distance: " + result.route.distance / 1000.0 + "km");
-				$('#result_time').html("travel time: " + result.route.time / 60.0 + "min");
+				$('#result_distance').html("travel distance: " + (result.route.distance / 1000.0).toFixed(2) + " km");
+				$('#result_time').html("travel time: " + (result.route.time / 60.0).toFixed(2) + " min");
 			}
-			$('#result_duration').html("route calculation took " + result.duration + "ms.");
+			$('#result_duration').html("route calculation took " + (result.duration).toFixed(2) + " ms.");
 
 			route = new_route;
 		});
 	});
 
-	$("#show_tmc_form").submit(function (event) {
+	var refresh_tmc = function () {
 
-		event.preventDefault();
+		console.log("running tmc update..");
 
-		var $form = $(this);
-		var url = $form.attr('action');
+		var url = "api/tmc";
 
 		$.getJSON(url, function (result) {
 			//console.log(result);
@@ -195,12 +201,16 @@
 					tmc_marker.push(marker);
 					eventList = eventList + entry.event + "<br/>";
 				});
-				$('#tmc_feedback').html("TMC Events: " + eventList);
+				if (eventList != "") {
+					$('#tmc_feedback').html("TMC Events: " + eventList);
+				}
 			}
 
 		});
-	});
+	};
 
+	refresh_tmc();
+	setInterval(refresh_tmc, 10000);
 
 </script>
 </body>
