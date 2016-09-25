@@ -12,6 +12,7 @@ html, body {
 }
 
 #sidebar {
+    font-size: small;
     color: #ffffff;
     float: right;
     width: 20%;
@@ -31,5 +32,4 @@ html, body {
 
 #sidebar_info {
     padding: 10px;
-
 }
