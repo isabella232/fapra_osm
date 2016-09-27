@@ -136,7 +136,7 @@ fn handle_event(raw_event: ::data::TMCRawEvent, state: &mut ::data::TMCState, da
 	if !value.edges.is_empty() {
 		state.current_tmc_events.insert(key, value);
 	} else {
-		println!("no edges found for loc id {}", raw_event.loc);
+		println!("tmc event location ({}) did not match any tagged edges, ignoring", raw_event.loc);
 	}
 }
 
@@ -177,7 +177,7 @@ fn build_tmc_range_set(raw_event: &::data::TMCRawEvent, data: &::data::State) ->
 		}
 	}
 
-	println!("range_set for loc {} {} {} = {:?}", raw_event.loc, raw_event.dir, raw_event.ext, result);
+	//println!("range_set for loc {} {} {} = {:?}", raw_event.loc, raw_event.dir, raw_event.ext, result);
 
 	return result;
 }

@@ -44,7 +44,7 @@ fn main() {
 }
 
 fn perform_parse() -> data::State {
-	let default_file = OsString::from("/home/jan/baden-wuerttemberg-latest.osm.pbf".to_string());
+	let default_file = OsString::from("/home/zsdn/baden-wuerttemberg-latest.osm.pbf".to_string());
 	//let default_file = OsString::from("/home/zsdn/germany-latest.osm.pbf".to_string());
 
 	let args: Vec<OsString> = std::env::args_os().collect();
