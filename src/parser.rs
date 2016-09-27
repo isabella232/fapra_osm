@@ -62,7 +62,7 @@ enum OneWay {
 }
 
 pub fn read_file(filename: &OsString) -> ::data::State {
-	println!("will read file: {:?}", &filename);
+	println!("will parse file: {:?}", &filename);
 
 	let mut parse_result = ParseData { nodes_used: HashSet::new(), filtered_ways: HashMap::new(), nodes: HashMap::new(), edges: Vec::new(), tmc_next: HashMap::new() };
 

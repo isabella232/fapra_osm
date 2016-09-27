@@ -13,7 +13,6 @@ use urlencoded::UrlEncodedQuery;
 use rustc_serialize::json;
 use time::PreciseTime;
 use std::sync::RwLock;
-use std::thread;
 use std::str::FromStr;
 
 #[derive(Debug, Clone)]
@@ -102,23 +101,23 @@ pub fn start(data: ::data::State) {
 
 	println!("server running on http://localhost:8080/");
 
-	start_tmc_listener_thread(tmc_state_wrapped_3, data_wrapped_5);
+	::tmc::init_tmc_threads(tmc_state_wrapped_3, data_wrapped_5);
 
 	Iron::new(mount).http("127.0.0.1:8080").unwrap();
 }
 
 fn get_hello(req: &mut Request, data: &::data::State) -> IronResult<Response> {
-	println!("Running get_hello handler, URL path: {:?}", req.url.path);
+	println!("Running get_hello handler, URL path: {:?}", req.url.path());
 	Ok(Response::with((status::Ok, format!("HI! nodes: {}, edges: {}", data.routing_data.internal_nodes.len(), data.routing_data.internal_edges.len()))))
 }
 
-fn get_tmc(req: &mut Request, data: &::data::State, tmc_state: &RwLock<::data::TMCState>) -> IronResult<Response> {
+fn get_tmc(_: &mut Request, data: &::data::State, tmc_state: &RwLock<::data::TMCState>) -> IronResult<Response> {
 	println!("Running get_tmc handler");
 
 	let mut result = TMCResult { events: Vec::new() };
 	let tmc = tmc_state.read().unwrap();
 
-	for (tmc_key, tmc_value) in &tmc.current_tmc_events {
+	for (_, tmc_value) in &tmc.current_tmc_events {
 		let mut res = TMCResultEntry { event: tmc_value.desc.clone(), edges: Vec::new() };
 
 		for edge_id in &tmc_value.edges {
@@ -140,7 +139,7 @@ fn get_tmc(req: &mut Request, data: &::data::State, tmc_state: &RwLock<::data::T
 }
 
 fn get_graph(req: &mut Request, data: &::data::State) -> IronResult<Response> {
-	println!("Running get_graph handler, URL path: {:?}", req.url.path);
+	println!("Running get_graph handler, URL path: {:?}", req.url.path());
 	Ok(Response::with((status::Ok, format!("nodes: {}, edges: {}", data.routing_data.internal_nodes.len(), data.routing_data.internal_edges.len()))))
 }
 
@@ -189,7 +188,7 @@ fn get_route(req: &mut Request, data: &::data::State, tmc_state: &RwLock<::data:
 		println!("doing routing from {} to {} for vehicle {} with metric {} and tmc {}", source, target, vehicle_raw, metric_raw, use_tmc);
 
 		let start = PreciseTime::now();
-		let result = run_dijkstra(&data.routing_data, source, target, vehice, metric, tmc_state, use_tmc);
+		let result = run_dijkstra(&data.routing_data, source, target, vehice, metric, tmc_state);
 		let end = PreciseTime::now();
 		//println!("route: {:?}", result);
 
@@ -201,7 +200,7 @@ fn get_route(req: &mut Request, data: &::data::State, tmc_state: &RwLock<::data:
 	}
 }
 
-fn run_dijkstra<F>(data: &::data::RoutingData, source_osm: i64, target_osm: i64, constraints: u8, cost_func: F, tmc_state: &RwLock<::data::TMCState>, use_tmc: bool) -> Option<Route>
+fn run_dijkstra<F>(data: &::data::RoutingData, source_osm: i64, target_osm: i64, constraints: u8, cost_func: F, tmc_state: &RwLock<::data::TMCState>) -> Option<Route>
 	where F: Fn(&::data::RoutingEdge, &f64, &usize, &::data::TMCState) -> f64 {
 	let vspeed = match constraints {
 		::data::FLAG_CAR => 130.0 / 3.6,
@@ -329,7 +328,7 @@ fn edge_cost_tmc(edge: &::data::RoutingEdge, vspeed: &f64, edge_id: &usize, stat
 		speed = *vspeed;
 	}
 
-	return edge.length / f64::max(1.0, speed * (1.0-slowdown));
+	return edge.length / f64::max(1.0, speed * (1.0 - slowdown));
 }
 
 fn edge_cost_time(edge: &::data::RoutingEdge, vspeed: &f64, _: &usize, _: &::data::TMCState) -> f64 {
@@ -340,12 +339,6 @@ fn edge_cost_time(edge: &::data::RoutingEdge, vspeed: &f64, _: &usize, _: &::dat
 	}
 
 	return edge.length / speed;
-}
-
-fn start_tmc_listener_thread(tmc_arc: Arc<RwLock<::data::TMCState>>, data_arc: Arc<::data::State>) {
-	thread::spawn(move || {
-		::tmc::run_tmc_thread(tmc_arc, data_arc);
-	});
 }
 
 #[test]

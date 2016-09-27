@@ -5,33 +5,76 @@ use std::collections::HashSet;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::fs::File;
+use std::thread;
+use std::time;
+
+const TIMEOUT: u32 = 5000; // 5 sec
+const TMC_DECAY_AGE: u32 = 10 * 60 * 1000; // 10 min
 
 struct LookupMaps {
 	slowdown: HashMap<u32, f64>,
 	descs: HashMap<u32, &'static str>
 }
 
-//fn run_TMC_thread(tmc_state: RwLock<::data::TMCState>, data: ::data::State) {
-pub fn run_tmc_thread(tmc_arc: Arc<RwLock<::data::TMCState>>, data_arc: Arc<::data::State>) {
+pub fn init_tmc_threads(tmc_arc: Arc<RwLock<::data::TMCState>>, data_arc: Arc<::data::State>) {
 	let lookup = build_maps();
 
-	insert_dummy_events(tmc_arc, data_arc, lookup);
+	//insert_dummy_events(tmc_arc, data_arc, lookup);
 	//run_rdsd_loop(tmc_arc, data_arc);
+
+	let tmc_arc_listener = tmc_arc.clone();
+	let tmc_arc_timeout = tmc_arc.clone();
+
+	let _ = thread::Builder::new().name("tmc_listener_thread".to_string()).spawn(move || {
+		run_rdsd_loop(tmc_arc_listener.clone(), data_arc.clone(), &lookup);
+	});
+	let _ = thread::Builder::new().name("tmc_timeout_thread".to_string()).spawn(move || {
+		run_timeout_loop(tmc_arc_timeout.clone());
+	});
 }
 
-fn insert_dummy_events(tmc_arc: Arc<RwLock<::data::TMCState>>, data: Arc<::data::State>, lookup: LookupMaps) {
-	let mut state = tmc_arc.write().unwrap();
+fn run_timeout_loop(tmc_arc: Arc<RwLock<::data::TMCState>>) {
+	println!("[TIMEOUT] thread started");
+	loop {
+		{
+			let mut state = tmc_arc.write().unwrap();
 
+			// update timeout
+			for (_, entry) in state.current_tmc_events.iter_mut() {
+				entry.timeout += TIMEOUT;
+			}
 
-	let f = File::open("/home/zsdn/rust_workspace/rust_fapraosm/rds/sample_events.log").unwrap();
+			let update_cnt = state.current_tmc_events.len();
+
+			// collect decayed (key,val)
+			let decayed: Vec<_> = state.current_tmc_events.iter().filter(|&(_, v)| v.timeout >= TMC_DECAY_AGE).map(|(k, _)| k.clone()).collect();
+
+			for key in &decayed {
+				if let Some(value) = state.current_tmc_events.remove(key) {
+					for edge in value.edges {
+						state.current_edge_events.remove(&edge);
+					}
+				}
+			}
+			println!("[TIMEOUT] updated {} entries, removed {} decayed entries, new cnt: {}", update_cnt, decayed.len(), state.current_tmc_events.len());
+		}
+
+		let timeout = time::Duration::from_millis(TIMEOUT as u64);
+		thread::sleep(timeout);
+	}
+}
+
+fn insert_dummy_events(tmc_arc: Arc<RwLock<::data::TMCState>>, data: Arc<::data::State>, lookup: &LookupMaps) {
+	let f = File::open("rds/sample_events.log").unwrap();
 	let f = BufReader::new(f);
+
+	let mut state = tmc_arc.write().unwrap();
 
 	for line in f.lines() {
 		if let Some(event) = parse_tmc_event(line.unwrap()) {
 			handle_event(event, &mut state, &data, &lookup);
 		}
 	}
-
 
 	println!("tmc_events: {}", state.current_tmc_events.len());
 	println!("edge_events: {}", state.current_edge_events.len());
@@ -139,21 +182,33 @@ fn build_tmc_range_set(raw_event: &::data::TMCRawEvent, data: &::data::State) ->
 	return result;
 }
 
-fn run_rdsd_loop(tmc_arc: Arc<RwLock<::data::TMCState>>, data_arc: Arc<::data::State>) {
-	let mut rdsd_child = Command::new("rdsd").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().expect("rdsd command failed to start");
-	let mut rdsquery_child = Command::new("rdsquery").arg("-s").arg("localhost").arg("-c").arg("0").arg("-t").arg("tmc").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().expect("rdsquery command failed to start");
+fn run_rdsd_loop(tmc_arc: Arc<RwLock<::data::TMCState>>, data_arc: Arc<::data::State>, lookup: &LookupMaps) {
+	println!("[RDSD] thread started");
 
-	let buf_reader = BufReader::new(rdsquery_child.stdout.as_mut().unwrap());
+	let rdsd_child_raw = Command::new("rdsd").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+	let rdsquery_child_raw = Command::new("rdsquery").arg("-s").arg("localhost").arg("-c").arg("0").arg("-t").arg("tmc").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn();
 
-	for line in buf_reader.lines() {
-		if let Ok(content) = line {
-			if let Some(event) = parse_tmc_event(content) {
-				//TODO
+	if let (Ok(mut rdsd_child), Ok(mut rdsquery_child)) = (rdsd_child_raw, rdsquery_child_raw) {
+		println!("[RDSD] successfully spawned rdsd ({}) and rdsquery ({})", rdsd_child.id(), rdsquery_child.id());
+
+		let buf_reader = BufReader::new(rdsquery_child.stdout.as_mut().unwrap());
+
+		for line in buf_reader.lines() {
+			if let Ok(content) = line {
+				if let Some(event) = parse_tmc_event(content) {
+					let mut state = tmc_arc.write().unwrap();
+					handle_event(event, &mut state, &data_arc, &lookup);
+				}
 			}
 		}
+
+		let _ = rdsd_child.kill();
+	} else {
+		println!("[RDSD] failed to start rdsd and rdsquery, will load sample events");
+		insert_dummy_events(tmc_arc, data_arc, &lookup);
 	}
 
-	rdsd_child.kill();
+	println!("[RDSD] thread ended");
 }
 
 fn build_event_slowdown_map(map_desc: &HashMap<u32, &str>) -> HashMap<u32, f64> {
