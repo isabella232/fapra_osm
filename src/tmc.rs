@@ -122,7 +122,7 @@ fn handle_event(raw_event: ::data::TMCRawEvent, state: &mut ::data::TMCState, da
 	let desc = lookup_desc(&raw_event.event, &lookup.descs);
 
 	let key = ::data::TMCKey { dir: raw_event.dir, loc: raw_event.loc, event: raw_event.event };
-	let mut value = ::data::TMCEvent { ext: raw_event.event, desc: desc, edges: HashSet::new(), slowdown: slowdown, timeout: 1000 * 10 };
+	let mut value = ::data::TMCEvent { ext: raw_event.event, desc: desc, edges: HashSet::new(), slowdown: slowdown, timeout: 0 };
 
 	for tmc_id in tmc_ids {
 		if let Some(edges) = data.routing_data.tmc_mapping.get(&tmc_id) {

@@ -99,9 +99,9 @@ pub fn start(data: ::data::State) {
 	mount.mount("/api/route", move |r: &mut Request| get_route(r, &data_wrapped_3, &tmc_state_wrapped));
 	mount.mount("/api/tmc", move |r: &mut Request| get_tmc(r, &data_wrapped_4, &tmc_state_wrapped_2));
 
-	println!("server running on http://localhost:8080/");
-
 	::tmc::init_tmc_threads(tmc_state_wrapped_3, data_wrapped_5);
+
+	println!("server running on http://localhost:8080/");
 
 	Iron::new(mount).http("127.0.0.1:8080").unwrap();
 }
