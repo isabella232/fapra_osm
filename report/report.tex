@@ -53,7 +53,7 @@ In this report a routing application that uses data from the OpenStreetMap proje
 %	ARTICLE CONTENTS
 %----------------------------------------------------------------------------------------
 \section{Introduction}
-Participants of the course \textit{Fachpraktikum: Algorithms for OpenStreetMap data} were tasked to build a routing application that uses OpenStreetMap \cite{osm_main} data to provide distance and time based routing for cars, bikes and pedestrians. After this base task was completed, the routing application should be extended. This application was extended to use current traffic information as available via the TMC radio broadcasts for the route calculation, e.g. route around a traffic congestion. The result is depicted in Figure \ref{fig:tmc_comp}. A similar system was realized by \citeauthor{sanwald2013} in the context of a bachelor thesis \cite{sanwald2013}. While the implementation by \citeauthor{sanwald2013} is Java-based, the application presented in this report is written in Rust \cite{rust_main}. Rust is a new system programming language with strong guarantees on memory and thread safety. The language fits the requirements for a routing application very well: It is a compiled language that offers performance on-par with C++, the standard library contains easy to work with collection types and the language ecosystem offers libraries that provide needed features like a Http server or a parser for pbf files (the OpenStreetMap data format). For a more in-depth discussion see section \ref{impl}.
+Participants of the course \textit{Fachpraktikum: Algorithms for OpenStreetMap data} were tasked to build a routing application that uses OpenStreetMap \cite{osm_main} data to provide distance and time based routing for cars, bikes and pedestrians. After this base task was completed, the routing application should be extended. This application was extended to use current traffic information, as provided by TMC via radio broadcast, during the route calculation, to, for example, route around a traffic congestion. An example for routing around a traffic event is shown in Figure \ref{fig:tmc_comp}. A similar system was realized by \citeauthor{sanwald2013} in the context of a bachelor thesis \cite{sanwald2013}. While the implementation by \citeauthor{sanwald2013} is Java-based, the application presented in this report is written in Rust \cite{rust_main}. Rust is a new system programming language with strong guarantees on memory and thread safety. The language fits the requirements for a routing application very well: It is a compiled language that offers performance on-par with C++, the standard library contains easy to work with collection types and the language ecosystem offers libraries that provide needed features like a Http server or a parser for pbf files (the OpenStreetMap data format). For a more in-depth discussion see section \ref{impl}.
 
 \begin{figure}
     \centering
@@ -72,12 +72,12 @@ Participants of the course \textit{Fachpraktikum: Algorithms for OpenStreetMap d
     \caption{Effect of respecting TMC events in the route calculation on the shortest found route for the same start and end points.}\label{fig:tmc_comp}
 \end{figure}
 
-The remainder of this report is structured as followed: First, the OpenStreetMap data format and TMC concepts are presented in section \ref{bg}. In the next section, \ref{sys}, the system is presented and in section \ref{impl} some implementation details are presented. Finally a conclusion and possible future work is presented in section \ref{concl}.
+The remainder of this report is structured as followed: First, the OpenStreetMap data format and TMC concepts are presented in section \ref{bg}. In the next section, \ref{sys}, the system is presented and in section \ref{impl} some implementation details are presented and a brief comparision with \citeauthor{sanwald2013}s system is given. Finally a conclusion and possible future work are presented in section \ref{concl}.
 
 \section{Background}
 \label{bg}
 \subsection{OpenStreetMap (OSM)}
-OpenStreetMap \cite{osm_main} is a project that aims to build a free map of the world. The geographical information is contributed by over 3 million users worldwide and the database contains over 3.5 billion nodes and over 370 million ways \cite{osm_stats}, the primitive data types the map is build from. The data can be freely downloaded and used and there are extracts available that are limited to certain areas (e.g. country, continent, region, city). The data can be downloaded in different formats, where to most efficient one is the *.osm.pbf binary format, that is also used by this application. The primitive data types have their associated information stored in key-value pairs called tags. For more information about the *.osm.pbf format and the data types used by OSM, see section \ref{sec:parsing}
+OpenStreetMap \cite{osm_main} is a project that aims to build a free map of the world. The geographical information is contributed by over 3 million users worldwide and the database contains over 3.5 billion nodes and over 370 million ways \cite{osm_stats}, the primitive data types the map is build from. The data can be freely downloaded and used and there are extracts available that are limited to certain areas (e.g. country, continent, region, city). The data is available in different formats, where to most efficient one is the *.osm.pbf binary format, that is also used by this application. The primitive data types have their associated information stored in key-value pairs called tags. For more information about the *.osm.pbf format and the data types used by OSM, see section \ref{sec:parsing}
 
 \subsection{Traffic Message Channel (TMC)}
 The Traffic Message Channel is a service that broadcasts traffic information. It is typically received via RDS, the Radio Data System, a standard to embed digital information in FM radio transmissions. TMC messages consist of a location code, an event code, the direction, incident extend and other fields that we will ignore here. The location code is defined in a document called LCL, the location code list. A location can have a neighbor location in positive and negative direction and the extend field of a TMC message is measured in hops over neighbors in the direction of the direction field of the message. The event codes are defined in the ECL, the event code list. So with the information from TMC messages one can determine the type of event, the location, direction and extend using the LCL and ECL. To use TMC messages in combination with routing based on OSM data two problems have to be solved: First it is necessary to have a mapping from TMC location code to the corresponding OSM data entry. Luckily the OSM dataset contains TMC Tags for some of its ways. The second problem is to determine the slowdown of a event code. To solve this, a simple lookup table is build, see section \ref{sec:tmc_handling}. 
@@ -86,7 +86,7 @@ For Germany, a new tagging scheme for TMC-data was proposed and is widely adopte
 
 \section{System}
 \label{sys}
-The general architecture of the system is shown in Figure \ref{arch}. A OSM extract in the pbf format is used as input by the parser to build the routing graph and to generate other routing information (see section \ref{data_representation}). This state can be saved to disk and be loaded upon start, so that not every restart of the system causes the parser to run. The State is used by the Routing module which is called by the HTTP-Server when a routing request was received from the web-UI. The HTTP-Server also serves the static content of the web-UI, e.g. the leaflet library. The TMC module starts the RDSD and RDSQUERY binaries and reads the STDOUT of RDSQUERY and generates new TMC events from this data source and updates the State appropriately.
+The general architecture of the system is shown in Figure \ref{arch}. A OSM extract in the *.osm.pbf format is used as input by the parser to build the routing graph and to generate other routing information (see section \ref{data_representation}). This state can be saved to disk and be loaded upon start, so that not every restart of the system causes the parser to run. The State is used by the Routing module which is called by the HTTP-Server when a routing request was received from the web-UI. The HTTP-Server also serves the static content of the web-UI, e.g. the leaflet library. The TMC module starts the RDSD and RDSQUERY binaries and reads the STDOUT of RDSQUERY and generates new TMC events from this data source and updates the State appropriately.
 
 \begin{figure}[t]
 \centering
@@ -97,11 +97,11 @@ The general architecture of the system is shown in Figure \ref{arch}. A OSM extr
 
 \subsection{Parsing OSM data}
 \label{sec:parsing}
-OpenStreetMap provides its map data in different formats, e.g. PBF or XML. The PBF (Protocolbuffer Binary Format) is the most efficient format. It is based on Googles Protobuf library. The File format uses serveral tricks to reduce the file size which makes reading such files complicated. However several libraries provide conviniernt wrappers that read the files and offer a abstraction similar to the general data primitives OSM offers. 
+OpenStreetMap provides its map data in different formats, e.g. osm.pbf or xml. The PBF (Protocolbuffer Binary Format) is the most efficient format. It is based on Googles Protobuf library. The File format uses several tricks to reduce the file size which makes reading such files complicated. However several libraries provide convenient wrappers that read the files and offer a abstraction on the level of the OSM primitives.
 
-These primitives are Nodes, Ways and Relations. Nodes are single point locations, ways  chain multiple nodes together to form a path and relations contain meta information about multiple ways and/or nodes. These primitives have multiple Tags, key-value pairs containing additional information about the tagged entity.
+These primitives are Nodes, Ways and Relations. Nodes are single point locations, ways chain multiple nodes together to form a path and relations contain meta information about multiple ways and/or nodes. These primitives have multiple Tags, key-value pairs containing additional information about the tagged entity.
 
-osmpbfreader-rs is used as wrapper around the file format. It provides a convenient API to read *.osm.pdf files. The parser module loops over the file contents in three passes:
+osmpbfreader-rs \cite{osmpbfreader} is used as wrapper around the file format. It provides a convenient API to read *.osm.pdf files. The parser module loops over the file contents in three passes:
 In the first pass the relevant ways are filtered out and all nodes that are contained in these ways are remembered. in the second pass, relevant node information (position) is extracted and in the third pass single edges are extracted from the ways. 
 
 After the three passes the extracted graph information is stored using the offset-array method. This allows fast access to the outgoing edges of a node while also being size-efficient. As a last step a grid is build from the nodes and their positions to allow to search for the nearest node from any given location.
@@ -181,7 +181,7 @@ which is parsed by the TMC module that spawns both RDSD and RDSQUERY as child pr
 The UI is depicted in Figure \ref{gui}. The user can click on the map to define the source and target location and select parameters like vehicle, metric and if tmc events should be considered during routing. A route is presented as polyline on the map and the length and travel duration is listed on the sidebar on the right. TMC events are shown as red polylines with a marker and popup containing the event description and also be listed 
 on the right. 
 
-The UI is realised in JavaScript and uses leaflet to render the map and jquery to ease the communication with the API endpoints of the HTTP-Server module. 
+The UI is realized in JavaScript and uses leaflet to render the map and jquery to ease the communication with the API endpoints of the HTTP-Server module. 
 
 \begin{figure}[t]
 \centering
@@ -196,7 +196,7 @@ The UI is realised in JavaScript and uses leaflet to render the map and jquery t
 The system is implemented in about 2753 lines of Rust code and about 200 lines of HTML, CSS and JavaScript for the UI\footnote{counted with CLOC \cite{cloc}}. Parsing the Baden-Würrtemberg osm.pbf file (about 400MB) takes about 3 minutes, a route calculation for this dataset typically under 2 seconds. 
 
 \subsection{Comparision with \citetitle{sanwald2013}}
-As already mentioned the systems differ in their implementation language. \citeauthor{sanwald2013} Is also using the old TMC tagging scheme. The systems also differ in the way the TMC events are handled. While sanwald directly modified the routing graph, This system keeps the TMC information separate from the graph while minimizing overhead during route calculation. Also \citeauthor{sanwald2013} uses a node delay that is applied to all incoming edges while this system directly maps the delays to the edges. While \citeauthor{sanwald2013} specifies delays in seconds, this system specifies delays as percent of the allowed max speed. The systems also differ in their data formats. While \citeauthor{sanwald2013} uses a textual representation, this system uses a binary format.
+As already mentioned the systems differ in their implementation language. \citeauthor{sanwald2013} Is also using the old TMC tagging scheme. The systems also differ in the way the TMC events are handled. While \citeauthor{sanwald2013} directly modified the routing graph, This system keeps the TMC information separate from the graph while minimizing overhead during route calculation. Also \citeauthor{sanwald2013} uses a node delay that is applied to all incoming edges while this system directly maps the delays to the edges. While \citeauthor{sanwald2013} specifies delays in seconds, this system specifies delays as percent of the allowed max speed. The systems also differ in their data formats. While \citeauthor{sanwald2013} uses a textual representation, this system uses a binary format.
 
 \subsection{Used third party libraries/software}
 Several open source libraries were used to build this system:
@@ -221,7 +221,6 @@ Several open source libraries were used to build this system:
 \subsection{License and source code}
 The source code of the presented application is available at \cite{github} and is licensed under the MIT-License:
 
-
 \VerbatimInput{../LICENSE.}
 
 \section{Conclusion and future work}
@@ -232,7 +231,7 @@ A major limiting factor is the sparse coverage of TMC tags in the OSM data. Out 
 
 The Rust programming language proved to be suited for building this application, only the compile times and limited tooling support are minor negative points.
 
-Possible future work includes to improve the UI with more details about TMC events and the found route, display a list of driving directions similar to popular routing applications. Other possibilities include to change the routing algorithm or to improve the memory efficiency during parsing. 
+Possible future work includes to improve the UI with more details about TMC events and the found route, display a list of driving directions similar to popular routing applications. Other possibilities include to change the routing algorithm or to improve the memory efficiency during parsing.
 
 %----------------------------------------------------------------------------------------
 \printbibliography
