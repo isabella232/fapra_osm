@@ -180,7 +180,7 @@ fn first_parse(filename: &OsString, parse_result: &mut ParseData) {
 						for tmc_info in tmc_info_set {
 							if let Some(tmc_info_next) = tmc_info.next {
 								parse_result.tmc_next.insert((tmc_info.id, tmc_info_next.direction), tmc_info_next.next);
-								parse_result.tmc_next.insert((tmc_info_next.next, !tmc_info_next.direction), tmc_info.id);
+								//parse_result.tmc_next.insert((tmc_info_next.next, !tmc_info_next.direction), tmc_info.id);
 							}
 							constraints.tmc_id.push(tmc_info.id);
 						}
